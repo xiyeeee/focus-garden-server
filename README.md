@@ -113,3 +113,16 @@ AuthDatabaseIT启动真实HTTP服务器，用Cookie jar及真实CSRF交互，Ses
 修改SecurityConfig/WebConfig、统一异常处理、TaskEntity/TaskMapper/TaskService、application配置、pom及.env.example。新增V3/V4/V5/V6、历史归属SQL、prod/local-mail配置。更新原有测试并新增PasswordAndCodeTests、AuthDatabaseIT；新增认证文档、TS类型/请求层与交互脚本，并同步任务文档/请求。前端业务组件、mockService和后续模块未改动。
 
 本次用户名扩展修改RegisterDTO、LoginDTO、AuthService、AuthenticationManager和登录Controller；EmailAddress规范化帮助类改为AccountIdentifier，供两种身份共用。UserEntity/UserMapper/UserVO补充username，UserVO.email可为null。AuthRateLimiter新增用户名注册限流，登录改为账号限流；不变更依赖版本。前端新增username-auth-api.md，并同步总认证文档、TS联合类型、curl示例和README。
+
+## 查看接口是否到达后端
+
+新增RequestAccessLogFilter，在Security过滤器外层记录/api请求的开始与结束，401/403/429也可见。停止并重新启动GardenApplication后，IDEA控制台会显示：
+
+```text
+[API] -> POST /api/auth/email-codes requestId=...
+[API] <- POST /api/auth/email-codes status=429 durationMs=3 requestId=...
+```
+
+开始日志表示请求到达；结束日志的status为200表示接口成功、429表示限流、503表示邮件服务暂时不可用。SMTP接受邮件与收件箱最终投递不是同一件事。响应头X-Request-ID与日志requestId一致，跨域已暴露此头，便于从Network定位同一请求。访问日志不记录请求体、查询参数、Cookie或Authorization，避免泄露密码、验证码和Session ID。
+
+涉及类重命名或删除时，应先停止旧JVM再重新构建启动，不能只依赖热更新。

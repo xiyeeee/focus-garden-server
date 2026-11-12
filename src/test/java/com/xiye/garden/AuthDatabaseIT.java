@@ -199,6 +199,7 @@ class AuthDatabaseIT {
         sendCode(browser, email, "RESET_PASSWORD");
         var limited = browser.call("POST", "/api/auth/email-codes", Map.of("email", email, "purpose", "RESET_PASSWORD"));
         assertEquals(429, limited.statusCode());
+        assertTrue(limited.headers().firstValue("X-Request-ID").isPresent());
         assertTrue(Long.parseLong(limited.headers().firstValue("Retry-After").orElseThrow()) > 0);
         String missing = email();
         for (int count = 0; count < 10; count++) {

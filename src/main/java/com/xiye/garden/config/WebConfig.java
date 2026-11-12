@@ -20,7 +20,7 @@ public class WebConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**").allowedOrigins(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                .allowedHeaders("Content-Type", "X-CSRF-TOKEN").exposedHeaders("Location", "Retry-After")
+                .allowedHeaders("Content-Type", "X-CSRF-TOKEN").exposedHeaders("Location", "Retry-After", "X-Request-ID")
                 .allowCredentials(true);
     }
 }
