@@ -334,6 +334,37 @@ class AuthDatabaseIT {
     }
 
     @Test
+    void emailAccountCanBindUsernameOnceWithDuplicateRejected() throws Exception {
+        String email = registered();
+        Browser browser = login(email);
+        String username = username();
+        var bind = browser.call("PUT", "/api/users/me/username", Map.of("username", " " + username.toUpperCase(Locale.ROOT) + " "));
+        assertEquals(200, bind.statusCode());
+        var user = body(bind).path("data");
+        assertEquals(username, user.path("username").asText());
+        assertEquals(email, user.path("email").asText());
+        var rebound = browser.call("PUT", "/api/users/me/username", Map.of("username", username()));
+        assertEquals(409, rebound.statusCode());
+        assertEquals("USERNAME_ALREADY_BOUND", body(rebound).path("code").asText());
+
+        assertEquals(200, browser.call("POST", "/api/auth/logout", null).statusCode());
+        browser.refreshCsrf();
+        assertEquals(200, browser.call("POST", "/api/auth/login", Map.of("username", username, "password", PASSWORD)).statusCode());
+        browser.refreshCsrf();
+        assertEquals(200, browser.call("POST", "/api/auth/logout", null).statusCode());
+        browser.refreshCsrf();
+        assertEquals(200, browser.call("POST", "/api/auth/login", Map.of("email", email, "password", PASSWORD)).statusCode());
+
+        String otherEmail = registered();
+        Browser other = login(otherEmail);
+        var duplicate = other.call("PUT", "/api/users/me/username", Map.of("username", username.toUpperCase(Locale.ROOT)));
+        assertEquals(409, duplicate.statusCode());
+        assertEquals("USERNAME_ALREADY_REGISTERED", body(duplicate).path("code").asText());
+        assertTrue(body(duplicate).path("message").asText().contains("重复"));
+        assertNull(jdbc.queryForObject("SELECT username FROM garden_user WHERE email=?", String.class, otherEmail));
+    }
+
+    @Test
     void usernameRegistrationAndLoginRateLimitsAreEnforced() throws Exception {
         Browser browser = new Browser();
         browser.refreshCsrf();

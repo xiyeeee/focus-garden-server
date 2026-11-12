@@ -257,6 +257,16 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
 }
 ```
 
+### PUT /api/users/me/username
+
+需登录Cookie与CSRF。给尚未绑定登录用户名的账号一次性设置 username，不新建账号；已绑定返回409 `USERNAME_ALREADY_BOUND`，被他人占用返回409 `USERNAME_ALREADY_REGISTERED`。
+
+```json
+{"username":"xiye"}
+```
+
+响应 HTTP 200，data 为更新后的 UserVO（同时保留原 email）。
+
 ### POST /api/auth/logout
 
 需Cookie与CSRF；无请求体；由Spring Security LogoutFilter处理，清理当前Cookie。
@@ -321,7 +331,8 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
 | 403 | CSRF_INVALID | Token缺失/错误，重新获取csrf，提示重试 |
 | 403 | FORBIDDEN | 无权限；不跳HTML页面 |
 | 404 | NOT_FOUND | 任务不存在或属于其他用户，统一不存在 |
-| 409 | USERNAME_ALREADY_REGISTERED | 用户名冲突，提示更换或登录 |
+| 409 | USERNAME_ALREADY_REGISTERED | 用户名冲突（注册或绑定），提示更换或登录 |
+| 409 | USERNAME_ALREADY_BOUND | 当前账号已绑定登录用户名，不可更改 |
 | 409 | EMAIL_ALREADY_REGISTERED | 邮箱冲突，提示转登录 |
 | 429 | RATE_LIMITED | 按Retry-After等待，不立即重试 |
 | 503 | MAIL_UNAVAILABLE | SMTP未接受邮件，不显示发送成功 |

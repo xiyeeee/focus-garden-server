@@ -64,7 +64,7 @@ public class AuthService {
             users.insert(user);
         } catch (DuplicateKeyException exception) {
             if (username != null) {
-                throw new AuthProblem(HttpStatus.CONFLICT, "USERNAME_ALREADY_REGISTERED", "该用户名已注册，请更换用户名或直接登录");
+                throw new AuthProblem(HttpStatus.CONFLICT, "USERNAME_ALREADY_REGISTERED", "该用户名已重复，请更换用户名或直接登录");
             }
             throw new AuthProblem(HttpStatus.CONFLICT, "EMAIL_ALREADY_REGISTERED", "该邮箱已注册，请直接登录");
         }
@@ -110,6 +110,27 @@ public class AuthService {
         var user = users.selectById(id);
         if (user == null || !"ACTIVE".equals(user.getStatus())) {
             throw new AuthProblem(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "请先登录或重新登录");
+        }
+        return UserVO.from(user);
+    }
+
+    /** 给尚未绑定登录用户名的已登录账号一次性设置 username；不新建账号。 */
+    @Transactional(noRollbackFor = AuthProblem.class)
+    public UserVO setUsername(long userId, String rawUsername) {
+        String username = AccountIdentifier.normalize(rawUsername);
+        var user = users.lockById(userId);
+        if (user == null || !"ACTIVE".equals(user.getStatus())) {
+            throw new AuthProblem(HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "请先登录或重新登录");
+        }
+        if (user.getUsername() != null) {
+            throw new AuthProblem(HttpStatus.CONFLICT, "USERNAME_ALREADY_BOUND", "当前账号已绑定登录用户名，不可更改");
+        }
+        user.setUsername(username);
+        user.setUpdatedAt(LocalDateTime.now(clock).truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+        try {
+            users.updateById(user);
+        } catch (DuplicateKeyException exception) {
+            throw new AuthProblem(HttpStatus.CONFLICT, "USERNAME_ALREADY_REGISTERED", "该用户名已重复，请更换用户名或直接登录");
         }
         return UserVO.from(user);
     }

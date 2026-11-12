@@ -20,7 +20,7 @@
 | password | 必填，8–128个UTF-16字符，保留空格和Unicode，不trim、不截断；PBKDF2哈希 |
 | nickname | 注册可选，最多30字符，可用中文；null/缺省/空白默认“花园新朋友”，保存时去首尾空白 |
 
-username是登录标识，nickname是显示名称，两者不同。当前没有修改用户名、绑定邮箱或合并账号接口。旧邮箱用户继续用邮箱登录，不能凭昵称登录。
+username是登录标识，nickname是显示名称，两者不同。旧邮箱用户可登录后通过 `PUT /api/users/me/username` 一次性绑定登录用户名；已绑定后不可更改。当前没有绑定邮箱或合并账号接口。旧邮箱用户继续可用邮箱登录，不能凭昵称登录。
 
 用户名账号没有已验证邮箱，**本次不提供该账号的自助邮箱找回密码**；不要将重置请求中的邮箱随意关联到用户名账号。原邮箱验证码重置仅处理对应的邮箱账号。
 
@@ -95,6 +95,16 @@ HTTP 200，data结构与注册相同，lastLoginAt/updatedAt更新为服务端�
 
 邮箱用户返回email字符串、username:null。GET /api/users/me返回同一UserVO结构，刷新页面时调用它判断登录状态；未登录返回JSON401。
 
+### 绑定登录用户名
+
+`PUT /api/users/me/username`，需登录Cookie与X-CSRF-TOKEN，Content-Type: application/json。仅允许尚未绑定 username 的账号（通常是邮箱注册用户）一次性设置；不新建账号，邮箱与任务归属不变。绑定后可用用户名或邮箱登录。
+
+```json
+{"username":"xiye"}
+```
+
+HTTP 200，data 为更新后的 UserVO（含 email 与 username）。
+
 ### 错误
 
 | HTTP | code | 场景 |
@@ -103,12 +113,13 @@ HTTP 200，data结构与注册相同，lastLoginAt/updatedAt更新为服务端�
 | 401 | INVALID_CREDENTIALS | 用户名不存在、密码错误或账号禁用；统一提示“用户名或密码错误” |
 | 401 | UNAUTHORIZED | 未登录或会话过期 |
 | 403 | CSRF_INVALID | 缺少/失效的安全Token |
-| 409 | USERNAME_ALREADY_REGISTERED | 用户名已存在，大小写归一后仍判重复；数据库唯一约束处理并发 |
+| 409 | USERNAME_ALREADY_REGISTERED | 用户名已存在（注册或绑定），大小写归一后仍判重复；数据库唯一约束处理并发 |
+| 409 | USERNAME_ALREADY_BOUND | 当前账号已绑定登录用户名，不可再次更改 |
 | 409 | EMAIL_ALREADY_REGISTERED | 原邮箱注册冲突 |
 | 429 | RATE_LIMITED | 请求限流；按Retry-After秒数等待 |
 
 ```json
-{"code":"USERNAME_ALREADY_REGISTERED","message":"该用户名已注册，请更换用户名或直接登录","data":null}
+{"code":"USERNAME_ALREADY_REGISTERED","message":"该用户名已重复，请更换用户名或直接登录","data":null}
 ```
 
 用户名注册每用户名5次/小时、每IP20次/小时，成功和冲突都计数。登录每账号（规范化邮箱或用户名）10次/15分钟、每IP50次/15分钟，计数持久化在MySQL独立事务中；不是未接入的内存配置。

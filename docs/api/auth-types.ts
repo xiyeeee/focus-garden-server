@@ -16,6 +16,8 @@ export type LoginDTO = { password: string } & (
   | { email: string; username?: never }
 );
 export interface ResetPasswordDTO { email: string; verificationCode: string; newPassword: string }
+/** 登录后一次性绑定登录用户名；仅尚未绑定的账号可用。 */
+export interface SetUsernameDTO { username: string }
 export interface CsrfVO { headerName: 'X-CSRF-TOKEN'; token: string }
 export interface UserVO {
   id: string;

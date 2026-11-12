@@ -6,6 +6,8 @@ import org.apache.ibatis.annotations.*;
 
 @Mapper
 public interface UserMapper extends BaseMapper<UserEntity> {
+    @Select("SELECT * FROM garden_user WHERE id = #{id} FOR UPDATE")
+    UserEntity lockById(@Param("id") long id);
     @Select("SELECT * FROM garden_user WHERE email = #{email} FOR UPDATE")
     UserEntity lockByEmail(@Param("email") String email);
     @Select("SELECT * FROM garden_user WHERE username = #{username} FOR UPDATE")

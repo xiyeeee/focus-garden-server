@@ -1,5 +1,5 @@
 import type { ApiErrorResponse, ApiResponse } from './task-types';
-import type { CsrfVO, EmailCodeDTO, LoginDTO, RegisterDTO, ResetPasswordDTO, UserVO } from './auth-types';
+import type { CsrfVO, EmailCodeDTO, LoginDTO, RegisterDTO, ResetPasswordDTO, SetUsernameDTO, UserVO } from './auth-types';
 
 export class GardenApiError extends Error {
   constructor(public readonly status: number, public readonly code: string,
@@ -46,6 +46,7 @@ export const createAuthClient = (http: GardenHttp) => ({
   emailCode: (body: EmailCodeDTO) => http.request<null>('/auth/email-codes', 'POST', body),
   register: (body: RegisterDTO) => http.request<UserVO>('/auth/register', 'POST', body),
   me: () => http.request<UserVO>('/users/me'),
+  setUsername: (body: SetUsernameDTO) => http.request<UserVO>('/users/me/username', 'PUT', body),
   login: async (body: LoginDTO) => {
     const user = await http.request<UserVO>('/auth/login', 'POST', body);
     await http.refreshCsrf();
