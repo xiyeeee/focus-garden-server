@@ -10,6 +10,9 @@ public class WebConfig implements WebMvcConfigurer {
     private final String[] allowedOrigins;
 
     public WebConfig(@Value("${CORS_ALLOWED_ORIGINS:http://localhost:5173}") String[] allowedOrigins) {
+        if (java.util.Arrays.stream(allowedOrigins).anyMatch(origin -> origin.contains("*"))) {
+            throw new IllegalArgumentException("凭据跨域请求必须配置明确的来源，不能使用通配符");
+        }
         this.allowedOrigins = allowedOrigins;
     }
 
@@ -17,6 +20,7 @@ public class WebConfig implements WebMvcConfigurer {
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**").allowedOrigins(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                .allowedHeaders("Content-Type").exposedHeaders("Location");
+                .allowedHeaders("Content-Type", "X-CSRF-TOKEN").exposedHeaders("Location", "Retry-After")
+                .allowCredentials(true);
     }
 }

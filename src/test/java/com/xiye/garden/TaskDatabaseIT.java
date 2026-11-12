@@ -22,6 +22,22 @@ class TaskDatabaseIT {
     @Autowired
     private JdbcTemplate jdbc;
 
+    @org.junit.jupiter.api.BeforeEach
+    void authenticate() {
+        String email = java.util.UUID.randomUUID() + "@tasks.test";
+        jdbc.update("INSERT INTO garden_user(email,password_hash,nickname,status,credential_version,created_at,updated_at) VALUES (?,?,'测试用户','ACTIVE',1,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))",
+                email, "test-only-unused-hash");
+        Long id = jdbc.queryForObject("SELECT id FROM garden_user WHERE email=?", Long.class, email);
+        var principal = new com.xiye.garden.auth.security.GardenPrincipal(id, 1);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                org.springframework.security.authentication.UsernamePasswordAuthenticationToken.authenticated(principal, null, java.util.List.of()));
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void clearAuthentication() {
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+    }
+
     @Test
     void migrationCrudPaginationAndReopeningPersistCorrectly() {
         var first = service.create(new TaskCreateDTO("集成测试🌱_100%", null, 25, TaskStatus.TODO, "fern"));

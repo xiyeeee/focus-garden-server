@@ -17,6 +17,13 @@ import org.springframework.web.ErrorResponse;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    @ExceptionHandler(com.xiye.garden.auth.exception.AuthProblem.class)
+    public ResponseEntity<ApiResponse<Void>> auth(com.xiye.garden.auth.exception.AuthProblem exception) {
+        var response = ResponseEntity.status(exception.status());
+        if (exception.retryAfter() > 0) response.header("Retry-After", Long.toString(exception.retryAfter()));
+        return response.body(ApiResponse.error(exception.code(), exception.getMessage()));
+    }
+
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiResponse<Void>> notFound(ResourceNotFoundException exception) {
         return error(HttpStatus.NOT_FOUND, exception.getMessage());
@@ -33,7 +40,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
             HandlerMethodValidationException.class})
     public ResponseEntity<ApiResponse<Void>> invalidRequest(Exception exception) {
-        return error(HttpStatus.BAD_REQUEST, "请求格式或参数值不正确；状态仅支持 TODO、IN_PROGRESS、COMPLETED，ID 必须为正整数");
+        return error(HttpStatus.BAD_REQUEST, "请求格式或参数值不正确，请检查字段类型、枚举值和ID");
     }
 
     @ExceptionHandler(NoResourceFoundException.class)

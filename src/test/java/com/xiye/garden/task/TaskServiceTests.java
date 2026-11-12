@@ -16,13 +16,16 @@ import static org.mockito.Mockito.*;
 class TaskServiceTests {
     private final TaskMapper mapper = mock(TaskMapper.class);
     private final Instant now = Instant.parse("2026-11-12T02:00:00Z");
-    private final TaskService service = new TaskService(mapper, Clock.fixed(now, ZoneOffset.UTC));
+    private final com.xiye.garden.auth.security.CurrentUser currentUser = mock(com.xiye.garden.auth.security.CurrentUser.class);
+    private final TaskService service = new TaskService(mapper, Clock.fixed(now, ZoneOffset.UTC), currentUser);
     private TaskEntity task;
 
     @BeforeEach
     void setUp() {
         task = new TaskEntity();
         task.setId(1L);
+        task.setUserId(1L);
+        when(currentUser.id()).thenReturn(1L);
         task.setTitle("测试");
         task.setDescription("");
         task.setPlannedFocusMinutes(25);
@@ -30,7 +33,7 @@ class TaskServiceTests {
         task.setPlantType("fern");
         task.setCreatedAt(LocalDateTime.ofInstant(now.minusSeconds(60), ZoneOffset.UTC));
         task.setUpdatedAt(task.getCreatedAt());
-        when(mapper.selectForUpdate(1)).thenReturn(task);
+        when(mapper.selectForUpdate(1, 1)).thenReturn(task);
         when(mapper.insert(any(TaskEntity.class))).thenAnswer(invocation -> {
             TaskEntity inserted = invocation.getArgument(0);
             inserted.setId(2L);
@@ -76,7 +79,7 @@ class TaskServiceTests {
     @Test
     void deleteRetainsPhysicalRowAndUsesServerTime() {
         service.delete(1);
-        verify(mapper).softDelete(1, LocalDateTime.ofInstant(now, ZoneOffset.UTC));
+        verify(mapper).softDelete(1, 1, LocalDateTime.ofInstant(now, ZoneOffset.UTC));
         verify(mapper, never()).deleteById(anyLong());
     }
 
@@ -97,6 +100,6 @@ class TaskServiceTests {
         assertThrows(ResourceNotFoundException.class, () -> service.update(99,
                 new TaskUpdateDTO("不存在", "", 25, TaskStatus.TODO, "fern")));
         verify(mapper, never()).deleteById(anyLong());
-        verify(mapper, never()).softDelete(anyLong(), any());
+        verify(mapper, never()).softDelete(anyLong(), anyLong(), any());
     }
 }

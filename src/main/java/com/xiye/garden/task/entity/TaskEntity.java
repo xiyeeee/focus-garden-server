@@ -9,6 +9,7 @@ import lombok.Data;
 public class TaskEntity {
     @TableId(type = IdType.AUTO)
     private Long id;
+    private Long userId;
     private String title;
     private String description;
     private Integer plannedFocusMinutes;

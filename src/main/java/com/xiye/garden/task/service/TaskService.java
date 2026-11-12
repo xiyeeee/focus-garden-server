@@ -1,6 +1,7 @@
 package com.xiye.garden.task.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.xiye.garden.auth.security.CurrentUser;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.xiye.garden.common.PageResponse;
 import com.xiye.garden.common.ResourceNotFoundException;
@@ -26,10 +27,12 @@ public class TaskService {
             "id", "id", "createdAt", "created_at", "updatedAt", "updated_at", "plannedFocusMinutes", "planned_focus_minutes");
     private final TaskMapper mapper;
     private final Clock clock;
+    private final CurrentUser currentUser;
 
     @Transactional
     public TaskVO create(TaskCreateDTO request) {
         TaskEntity task = new TaskEntity();
+        task.setUserId(currentUser.id());
         task.setCreatedAt(utcNow());
         applyRequest(task, new TaskUpdateDTO(request.title(), request.description(),
                 request.plannedFocusMinutes(), request.status(), request.plantType()));
@@ -38,7 +41,7 @@ public class TaskService {
     }
 
     public PageResponse<TaskVO> list(TaskQueryDTO query) {
-        var conditions = new QueryWrapper<TaskEntity>();
+        var conditions = new QueryWrapper<TaskEntity>().eq("user_id", currentUser.id());
         conditions.eq(query.getStatus() != null, "status", query.getStatus());
         if (query.getTitle() != null && !query.getTitle().isBlank()) {
             // LOCATE treats % and _ as literal characters and still uses bound parameters.
@@ -58,12 +61,12 @@ public class TaskService {
     }
 
     public TaskVO get(long id) {
-        return TaskVO.from(requireTask(mapper.selectById(id)));
+        return TaskVO.from(requireTask(mapper.selectOwned(id, currentUser.id())));
     }
 
     @Transactional
     public TaskVO update(long id, TaskUpdateDTO request) {
-        TaskEntity task = requireTask(mapper.selectForUpdate(id));
+        TaskEntity task = requireTask(mapper.selectForUpdate(id, currentUser.id()));
         applyRequest(task, request);
         mapper.updateById(task);
         return TaskVO.from(task);
@@ -71,7 +74,7 @@ public class TaskService {
 
     @Transactional
     public TaskVO complete(long id) {
-        TaskEntity task = requireTask(mapper.selectForUpdate(id));
+        TaskEntity task = requireTask(mapper.selectForUpdate(id, currentUser.id()));
         if (task.getStatus() == TaskStatus.COMPLETED) {
             return TaskVO.from(task);
         }
@@ -84,8 +87,8 @@ public class TaskService {
 
     @Transactional
     public void delete(long id) {
-        requireTask(mapper.selectForUpdate(id));
-        mapper.softDelete(id, utcNow());
+        requireTask(mapper.selectForUpdate(id, currentUser.id()));
+        mapper.softDelete(id, currentUser.id(), utcNow());
     }
 
     private void applyRequest(TaskEntity task, TaskUpdateDTO request) {
@@ -110,7 +113,7 @@ public class TaskService {
     }
 
     private TaskEntity requireTask(TaskEntity task) {
-        if (task == null) {
+        if (task == null || !java.util.Objects.equals(task.getUserId(), currentUser.id())) {
             throw new ResourceNotFoundException("任务不存在");
         }
         return task;

@@ -1,8 +1,8 @@
 # 任务模块 API 对接文档
 
-本文件是当前 `focus-garden-server` 实际任务接口契约。根包 `com.xiye.garden`；不实现专注、植物收藏、统计和用户接口。已读取兄弟项目前端 `src/types/index.ts`、TaskForm、HTTP 配置及 `docs/api-contract.md`。前端建议契约仍标为“待确认”，以本文件的已实现行为为准。
+本文件是当前 `focus-garden-server` 实际任务接口契约。根包 `com.xiye.garden`；不实现专注、植物收藏和统计；用户认证接口见 [auth-api.md](auth-api.md)。已读取兄弟项目前端 `src/types/index.ts`、TaskForm、HTTP 配置及 `docs/api-contract.md`。前端建议契约仍标为“待确认”，以本文件的已实现行为为准。
 
-仓库没有可读取的设计稿，连接页面快照也为空，因此未核对设计稿。没有认证框架、用户表或身份上下文，当前仅供本地单用户开发，不需要 token、Cookie 或 Authorization，不接受前端 userId 作为身份；多用户部署前须实现服务端鉴权和数据归属校验。
+仓库没有可读取的设计稿，连接页面快照也为空，因此未核对设计稿。已接入 Spring Security + MySQL Session。全部任务接口必须登录，并携带 Cookie；POST/PUT/DELETE 还必须携带 X-CSRF-TOKEN。先获取 /api/auth/csrf，再登录，登录成功后重新获取csrf。服务端从认证上下文确定用户，不接受userId输入；其他用户资源统一404。完整调用顺序见 [auth-api.md](auth-api.md)。
 
 ## 1. 初始化、启动与网络
 
@@ -12,8 +12,8 @@
 
 ```sh
 mysql -h localhost -u <管理员账号> -p < sql/00_create_database.sql
-cp .env.example .env
-# 编辑 .env，填写 DB_USERNAME 和 DB_PASSWORD，特殊字符使用 shell 单引号
+test -f .env || cp .env.example .env
+# 编辑 .env，填写数据库、随机 AUTH_CODE_HMAC_KEY 和SMTP变量；本地Mailpit可启用local-mail，见auth-api.md
 set -a
 . ./.env
 set +a
@@ -22,7 +22,7 @@ set +a
 
 Spring Boot 不自动读取 `.env`，上面的 shell 命令负责导出。连接配置：`DB_HOST=localhost`、`DB_PORT=3306`、`DB_NAME=focus_garden`；`DB_USERNAME/DB_PASSWORD` 必填；账号须有该开发库的 SELECT/INSERT/UPDATE/DELETE/CREATE/ALTER/INDEX/REFERENCES 权限。账号创建参考根目录 README，密码不提交。端口可用 `SERVER_PORT` 调整。
 
-首次启动 Flyway 依次执行 `V1__create_tasks.sql`（建表及基础 CHECK）和 `V2__complete_task_schema.sql`（字段注释、植物偏好、逻辑删除及索引）。已有 V1 的库仅执行 V2。**不要手动执行或重复执行 Flyway 管理的脚本，不修改 V1 或已执行的 V2，不开启 baseline/clean 绕过错误。** 新变更新增 V3。`sql/00_create_database.sql` 仅建库，允许重复执行；不会改变已有库的字符集。未提供演示数据脚本，不自动插入样例任务。
+首次启动 Flyway 执行 V1–V5：任务表、字段补全、用户/验证码/限流表、官方Session表、任务归属列。已有版本不重复执行；已执行迁移不修改，后续新增V6。禁止手动重复执行Flyway管理的脚本。历史任务user_id=NULL保持隔离，仅按核实后的显式映射由管理员迁移，见auth-api.md。
 
 前端当前已有 Axios，设置 `VITE_API_BASE_URL=http://localhost:8080/api` 可使用后端 CORS：默认允许精确源 `http://localhost:5173`，更换前端端口后同步设置 `CORS_ALLOWED_ORIGINS`，多个源逗号分隔。该变量配置不会自动将现有 mockService 切为 HTTP。
 
@@ -34,15 +34,16 @@ server: {
 },
 ```
 
-这时 Axios baseURL 保持 `/api`，浏览器同源访问，不需要跨域 Cookie。当前仓库尚未配置这个代理；以上为可复制配置。健康探测 `GET /api/health` 为进程存活检查，不是数据库实时可用性探测。
+这时 Axios baseURL 保持 `/api`，浏览器同源访问；Cookie仍用于认证，所有写请求还需CSRF Token。当前仓库尚未配置这个代理；以上为可复制配置。健康探测 `GET /api/health` 为进程存活检查，不是数据库实时可用性探测。
 
 ## 2. 表结构与业务约定
 
-表 `tasks`：MySQL InnoDB / utf8mb4_0900_ai_ci，主键 BIGINT AUTO_INCREMENT，由数据库生成；只有 TaskEntity 一个数据库映射，没有 TaskPO。V1 保持原文件，V2 增量迁移。
+表 `tasks`：MySQL InnoDB / utf8mb4_0900_ai_ci，主键 BIGINT AUTO_INCREMENT，由数据库生成；只有 TaskEntity 一个数据库映射，没有 TaskPO。V1/V2 保持原文件，V5 增量添加用户归属。
 
 | 数据库字段 | Java / JSON | 类型、默认与含义 |
 | --- | --- | --- |
 | id | Long / string | BIGINT，自增，不接受请求设置 |
+| user_id | Long / 不返回 | BIGINT，服务端认证身份；历史NULL任务隔离 |
 | title | String / string | VARCHAR(100) NOT NULL，无默认；标题 |
 | description | String / string | VARCHAR(2000) NOT NULL DEFAULT '' |
 | planned_focus_minutes | Integer / number | INT NOT NULL，无默认；1–1440 整数分钟 |
@@ -53,7 +54,7 @@ server: {
 | completed_at | LocalDateTime / string 或 null | DATETIME(6) NULL DEFAULT NULL |
 | deleted | Boolean / 不返回 | TINYINT NOT NULL DEFAULT 0，0 正常、1 逻辑删除 |
 
-CHECK 约束校验分钟数、状态、植物类型、删除标记及完成时间一致性。索引仅有主键、`(deleted,status,created_at,id)` 和 `(deleted,created_at,id)`，分别服务状态筛选与默认排序；标题为子串查询，不盲目建普通 title 索引，其他排序字段允许但不保证索引排序。
+CHECK 约束校验分钟数、状态、植物类型、删除标记及完成时间一致性。索引仅有主键、`(user_id,deleted,status,created_at,id)` 和 `(user_id,deleted,created_at,id)`，分别服务状态筛选与默认排序；标题为子串查询，不盲目建普通 title 索引，其他排序字段允许但不保证索引排序。
 
 - 标题请求原始长度 1–100（Java/JS 字符串 UTF-16 长度），拒绝空白字符串，保存时去首尾空白。描述不 trim。
 - 已完成任务允许编辑。状态允许相互转换，与专注会话状态没有自动绑定。客户端不能设置 completedAt。
@@ -92,7 +93,7 @@ CHECK 约束校验分钟数、状态、植物类型、删除标记及完成时�
 
 分页 data：`{page,size,total,records}`。page/size 是 number；total 是记录总数；records 永远是数组。
 
-失败使用非 2xx HTTP 状态，body 为 `{code,message,data:null}`。业务未定义独立数字错误码，code 复用 HTTP 状态名；前端按 HTTP status/code 判断，message 供用户展示，不应解析中文文字作为逻辑条件。
+失败使用非 2xx HTTP 状态，body 为 `{code,message,data:null}`。业务未定义独立数字错误码，任务通用错误 code 复用 HTTP 状态名，认证扩展业务码见auth-api.md；前端按 HTTP status/code 判断，message 供用户展示，不应解析中文文字作为逻辑条件。
 
 ## 4. 请求字段与缺省语义
 
@@ -310,9 +311,9 @@ TaskCreateDTO 与 TaskUpdateDTO 是不同 Java DTO；JSON 字段相同。PUT 为
 | 415 | UNSUPPORTED_MEDIA_TYPE | 非 application/json 的请求体 |
 | 500 | INTERNAL_SERVER_ERROR | 未预期服务错误；不暴露数据库/堆栈 |
 
-当前没有401/403登录流程或409活跃专注冲突，不要据建议文档臆造接口行为。
+现已接入认证：401 UNAUTHORIZED 表示未登录/过期，403 CSRF_INVALID 表示安全令牌错误，429 RATE_LIMITED 表示认证请求限流。仍未实现409活跃专注冲突。
 
-任务不存在或已删除：
+任务不存在、已删除或属于其他用户：
 
 ```json
 {
@@ -346,9 +347,10 @@ TaskCreateDTO 与 TaskUpdateDTO 是不同 Java DTO；JSON 字段相同。PUT 为
 
 ## 7. 前端 TypeScript 与映射
 
-可直接复制的完整类型见 [task-types.ts](task-types.ts)，包含 ApiResponse、ApiErrorResponse、PageResponse、TaskCreateDTO、TaskUpdateDTO、TaskQueryDTO、TaskVO 与枚举；原生 fetch 请求实现见 [task-client.ts](task-client.ts)，与现有前端的转换函数见 [task-adapter.ts](task-adapter.ts)。复制到前端 services 目录时保持三个文件相对关系或调整 import，所有前端函数均为箭头函数。不必新增请求库，现有 Axios 也可直接套用这些类型：
+可直接复制的完整类型见 [task-types.ts](task-types.ts)，包含 ApiResponse、ApiErrorResponse、PageResponse、TaskCreateDTO、TaskUpdateDTO、TaskQueryDTO、TaskVO 与枚举；共用Cookie/CSRF请求实现见 [auth-client.ts](auth-client.ts) 和 [task-client.ts](task-client.ts)，与现有前端的转换函数见 [task-adapter.ts](task-adapter.ts)。复制到前端 services 目录时保持三个文件相对关系或调整 import，所有前端函数均为箭头函数。不必新增请求库，现有 Axios 也可直接套用这些类型：
 
 ```ts
+// Axios必须开启withCredentials，并为写请求加X-CSRF-TOKEN
 const response = await http.get<ApiResponse<PageResponse<TaskVO>>>('/tasks', {
   params: { page: 1, size: 20, status: 'TODO' },
 });
@@ -385,4 +387,4 @@ const page = response.data.data;
 
 `./mvnw verify` 执行不依赖数据库的 MVC/Service 测试与打包。真实数据库测试使用专用 `focus_garden_test` 空库与 TEST_DB_USERNAME/TEST_DB_PASSWORD，执行 `./mvnw -Pintegration verify`；请使用仅有测试库权限的账号，不连接生产库。
 
-本次 SQL 执行情况和最终检查结果见根目录 README 的最新验证记录；未连通 MySQL 前，不将 V1/V2 执行、持久化或逻辑删除隔离视为已验证。项目没有 OpenAPI 配置，本次不新增框架。
+本次 SQL 执行情况和最终检查结果见根目录 README 的最新验证记录。V1–V5 已在独立MySQL测试库执行，任务和认证集成测试通过。真实SMTP投递与生产HTTPS尚未验证。项目没有OpenAPI配置，不新增框架。

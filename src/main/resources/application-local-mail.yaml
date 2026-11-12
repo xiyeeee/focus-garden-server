@@ -1,0 +1,13 @@
+# Explicit local-only SMTP capture profile; requires a running Mailpit, never logs or returns codes.
+spring:
+  mail:
+    host: localhost
+    port: 1025
+    properties:
+      mail.smtp.auth: false
+      mail.smtp.starttls.enable: false
+      mail.smtp.starttls.required: false
+      mail.smtp.ssl.enable: false
+garden:
+  mail:
+    from: noreply@focus-garden.local

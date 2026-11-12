@@ -8,9 +8,27 @@ spring:
   jackson:
     deserialization:
       accept-float-as-int: false
+      fail-on-unknown-properties: true
     datatype:
       enum:
         fail-on-numbers-for-enums: true
+  mail:
+    host: ${SMTP_HOST}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${SMTP_AUTH:true}
+      mail.smtp.starttls.enable: ${SMTP_STARTTLS:true}
+      mail.smtp.starttls.required: ${SMTP_STARTTLS:true}
+      mail.smtp.ssl.enable: ${SMTP_SSL:false}
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+  session:
+    timeout: 30m
+    jdbc:
+      initialize-schema: never
   flyway:
     enabled: true
     encoding: UTF-8
@@ -22,3 +40,18 @@ mybatis-plus:
 server:
   address: ${SERVER_ADDRESS:127.0.0.1}
   port: ${SERVER_PORT:8080}
+  forward-headers-strategy: none
+  servlet:
+    session:
+      cookie:
+        name: GARDEN_SESSION
+        http-only: true
+        secure: ${SESSION_COOKIE_SECURE:false}
+        same-site: lax
+garden:
+  mail:
+    from: ${SMTP_FROM}
+
+logging:
+  level:
+    org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver: WARN

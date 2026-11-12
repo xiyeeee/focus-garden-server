@@ -1,11 +1,18 @@
 @baseUrl = http://localhost:8080
 @taskId = 1
+# 先登录并获取新CSRF；完整Cookie/CSRF流程见docs/examples/auth-flow.sh。
+# 在支持共享Cookie jar的HTTP客户端中先完成登录，再将csrf端点返回token填入下方。
+@csrfToken = replace_with_csrf_token_after_login
+
+### Obtain CSRF (also refresh after login); client must retain response cookies
+GET {{baseUrl}}/api/auth/csrf
 
 ### Health: process liveness, not a database readiness probe
 GET {{baseUrl}}/api/health
 
 ### Create (201); copy returned data.id into taskId
 POST {{baseUrl}}/api/tasks
+X-CSRF-TOKEN: {{csrfToken}}
 Content-Type: application/json
 
 {
@@ -24,6 +31,7 @@ GET {{baseUrl}}/api/tasks/{{taskId}}
 
 ### Replace editable fields (PUT)
 PUT {{baseUrl}}/api/tasks/{{taskId}}
+X-CSRF-TOKEN: {{csrfToken}}
 Content-Type: application/json
 
 {
@@ -36,15 +44,19 @@ Content-Type: application/json
 
 ### Complete (repeat safely)
 POST {{baseUrl}}/api/tasks/{{taskId}}/complete
+X-CSRF-TOKEN: {{csrfToken}}
 
 ### Repeat complete: same completedAt and updatedAt
 POST {{baseUrl}}/api/tasks/{{taskId}}/complete
+X-CSRF-TOKEN: {{csrfToken}}
 
 ### Logical delete (200); physical row retained; repeat returns 404
 DELETE {{baseUrl}}/api/tasks/{{taskId}}
+X-CSRF-TOKEN: {{csrfToken}}
 
 ### Validation example (400)
 POST {{baseUrl}}/api/tasks
+X-CSRF-TOKEN: {{csrfToken}}
 Content-Type: application/json
 
 {"title":"", "plannedFocusMinutes":0, "status":"TODO"}

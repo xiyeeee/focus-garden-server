@@ -1,5 +1,11 @@
 package com.xiye.garden.task;
 
+import org.springframework.context.annotation.Import;
+import com.xiye.garden.config.SecurityConfig;
+import com.xiye.garden.auth.security.SecurityJsonResponse;
+import com.xiye.garden.user.mapper.UserMapper;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+
 import com.xiye.garden.common.ResourceNotFoundException;
 import com.xiye.garden.task.controller.TaskController;
 import com.xiye.garden.task.service.TaskService;
@@ -10,14 +16,20 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.Mockito.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+@Import({SecurityConfig.class, SecurityJsonResponse.class})
 @WebMvcTest(TaskController.class)
+@org.springframework.security.test.context.support.WithMockUser
 class TaskControllerTests {
+    @MockitoBean
+    private UserMapper users;
+    @MockitoBean
+    private com.xiye.garden.auth.service.AuthService auth;
     @Autowired
     private MockMvc mvc;
     @MockitoBean
@@ -41,9 +53,9 @@ class TaskControllerTests {
         String numericStatus = """
                 {"title":"任务","plannedFocusMinutes":25,"status":0}
                 """;
-        mvc.perform(post("/api/tasks").contentType(MediaType.APPLICATION_JSON).content(fractional))
+        mvc.perform(post("/api/tasks").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(fractional))
                 .andExpect(status().isBadRequest());
-        mvc.perform(post("/api/tasks").contentType(MediaType.APPLICATION_JSON).content(numericStatus))
+        mvc.perform(post("/api/tasks").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(numericStatus))
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(service);
     }
@@ -53,7 +65,7 @@ class TaskControllerTests {
         var instant = java.time.Instant.parse("2026-11-12T02:00:00Z");
         when(service.create(any())).thenReturn(new com.xiye.garden.task.vo.TaskVO(
                 "9007199254740993", "任务", "", 25, com.xiye.garden.task.entity.TaskStatus.TODO, "fern", instant, instant, null));
-        mvc.perform(post("/api/tasks").contentType(MediaType.APPLICATION_JSON).content("""
+        mvc.perform(post("/api/tasks").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("""
                 {"title":"任务","plannedFocusMinutes":25,"status":"TODO"}
                 """))
                 .andExpect(status().isCreated())
@@ -65,9 +77,9 @@ class TaskControllerTests {
     @ParameterizedTest
     @MethodSource("invalidBodies")
     void rejectsInvalidCreateAndUpdate(String body) throws Exception {
-        mvc.perform(post("/api/tasks").contentType(MediaType.APPLICATION_JSON).content(body))
+        mvc.perform(post("/api/tasks").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("BAD_REQUEST"));
-        mvc.perform(put("/api/tasks/1").contentType(MediaType.APPLICATION_JSON).content(body))
+        mvc.perform(put("/api/tasks/1").with(csrf()).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(service);
     }
@@ -89,8 +101,8 @@ class TaskControllerTests {
 
     @Test
     void preservesFrameworkHttpStatus() throws Exception {
-        mvc.perform(patch("/api/tasks/1")).andExpect(status().isMethodNotAllowed());
-        mvc.perform(post("/api/tasks").contentType(MediaType.TEXT_PLAIN).content("任务"))
+        mvc.perform(patch("/api/tasks/1").with(csrf())).andExpect(status().isMethodNotAllowed());
+        mvc.perform(post("/api/tasks").with(csrf()).contentType(MediaType.TEXT_PLAIN).content("任务"))
                 .andExpect(status().isUnsupportedMediaType());
         mvc.perform(get("/api/tasks/1").accept(MediaType.APPLICATION_XML))
                 .andExpect(status().isNotAcceptable());
@@ -101,17 +113,17 @@ class TaskControllerTests {
         when(service.update(eq(99L), any())).thenThrow(new ResourceNotFoundException("任务不存在"));
         doThrow(new ResourceNotFoundException("任务不存在")).when(service).delete(99L);
         when(service.complete(99L)).thenThrow(new ResourceNotFoundException("任务不存在"));
-        mvc.perform(put("/api/tasks/99").contentType(MediaType.APPLICATION_JSON).content("""
+        mvc.perform(put("/api/tasks/99").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("""
                 {"title":"任务","plannedFocusMinutes":25,"status":"TODO"}
                 """))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.message").value("任务不存在"));
-        mvc.perform(delete("/api/tasks/99")).andExpect(status().isNotFound());
-        mvc.perform(post("/api/tasks/99/complete")).andExpect(status().isNotFound());
+        mvc.perform(delete("/api/tasks/99").with(csrf())).andExpect(status().isNotFound());
+        mvc.perform(post("/api/tasks/99/complete").with(csrf())).andExpect(status().isNotFound());
     }
 
     @Test
     void invalidPlantTypeHasChineseValidationMessage() throws Exception {
-        mvc.perform(post("/api/tasks").contentType(MediaType.APPLICATION_JSON).content("""
+        mvc.perform(post("/api/tasks").with(csrf()).contentType(MediaType.APPLICATION_JSON).content("""
                 {"title":"任务","plannedFocusMinutes":25,"status":"TODO","plantType":"invalid"}
                 """))
                 .andExpect(status().isBadRequest())
@@ -122,7 +134,7 @@ class TaskControllerTests {
     @Test
     void rejectsNonPositiveId() throws Exception {
         mvc.perform(get("/api/tasks/0")).andExpect(status().isBadRequest());
-        mvc.perform(delete("/api/tasks/-1")).andExpect(status().isBadRequest());
+        mvc.perform(delete("/api/tasks/-1").with(csrf())).andExpect(status().isBadRequest());
         verifyNoInteractions(service);
     }
 }

@@ -10,8 +10,11 @@ import java.time.LocalDateTime;
 
 @Mapper
 public interface TaskMapper extends BaseMapper<TaskEntity> {
-    @Select("SELECT * FROM tasks WHERE id = #{id} AND deleted = 0 FOR UPDATE")
-    TaskEntity selectForUpdate(@Param("id") long id);
-    @Update("UPDATE tasks SET deleted = 1, updated_at = #{updatedAt} WHERE id = #{id} AND deleted = 0")
-    int softDelete(@Param("id") long id, @Param("updatedAt") LocalDateTime updatedAt);
+    @Select("SELECT * FROM tasks WHERE id = #{id} AND user_id = #{userId} AND deleted = 0")
+    TaskEntity selectOwned(@Param("id") long id, @Param("userId") long userId);
+
+    @Select("SELECT * FROM tasks WHERE id = #{id} AND user_id = #{userId} AND deleted = 0 FOR UPDATE")
+    TaskEntity selectForUpdate(@Param("id") long id, @Param("userId") long userId);
+    @Update("UPDATE tasks SET deleted = 1, updated_at = #{updatedAt} WHERE id = #{id} AND user_id = #{userId} AND deleted = 0")
+    int softDelete(@Param("id") long id, @Param("userId") long userId, @Param("updatedAt") LocalDateTime updatedAt);
 }
