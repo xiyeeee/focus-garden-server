@@ -1,0 +1,5 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${TEST_DB_HOST:localhost}:${TEST_DB_PORT:3306}/focus_garden_test?characterEncoding=UTF-8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+    username: ${TEST_DB_USERNAME}
+    password: ${TEST_DB_PASSWORD}

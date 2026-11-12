@@ -1,0 +1,56 @@
+@baseUrl = http://localhost:8080
+@taskId = 1
+
+### Health: process liveness, not a database readiness probe
+GET {{baseUrl}}/api/health
+
+### Create (201); copy returned data.id into taskId
+POST {{baseUrl}}/api/tasks
+Content-Type: application/json
+
+{
+  "title": "完成后端第一阶段",
+  "description": "任务接口与测试",
+  "plannedFocusMinutes": 25,
+  "status": "TODO",
+  "plantType": "fern"
+}
+
+### Filter and paginate
+GET {{baseUrl}}/api/tasks?page=1&size=20&status=TODO&title=后端&sortBy=createdAt&direction=desc
+
+### Detail
+GET {{baseUrl}}/api/tasks/{{taskId}}
+
+### Replace editable fields (PUT)
+PUT {{baseUrl}}/api/tasks/{{taskId}}
+Content-Type: application/json
+
+{
+  "title": "完成后端第一阶段",
+  "description": "开始联调",
+  "plannedFocusMinutes": 50,
+  "status": "IN_PROGRESS",
+  "plantType": "daisy"
+}
+
+### Complete (repeat safely)
+POST {{baseUrl}}/api/tasks/{{taskId}}/complete
+
+### Repeat complete: same completedAt and updatedAt
+POST {{baseUrl}}/api/tasks/{{taskId}}/complete
+
+### Logical delete (200); physical row retained; repeat returns 404
+DELETE {{baseUrl}}/api/tasks/{{taskId}}
+
+### Validation example (400)
+POST {{baseUrl}}/api/tasks
+Content-Type: application/json
+
+{"title":"", "plannedFocusMinutes":0, "status":"TODO"}
+
+### Missing task (404)
+GET {{baseUrl}}/api/tasks/9223372036854775807
+
+### Invalid sort (400)
+GET {{baseUrl}}/api/tasks?sortBy=title

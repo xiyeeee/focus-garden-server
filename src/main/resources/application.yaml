@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: focus-garden-server
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:focus_garden}?characterEncoding=UTF-8&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+  jackson:
+    deserialization:
+      accept-float-as-int: false
+    datatype:
+      enum:
+        fail-on-numbers-for-enums: true
+  flyway:
+    enabled: true
+    encoding: UTF-8
+    clean-disabled: true
+    validate-on-migrate: true
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8080}
