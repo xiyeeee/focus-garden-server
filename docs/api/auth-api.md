@@ -1,4 +1,6 @@
-# 用户与 Session 认证接口
+# 用户名、邮箱与 Session 认证接口
+
+用户名快速接入见 [username-auth-api.md](username-auth-api.md)，用户名注册不需要邮箱或验证码，原邮箱流程保留。
 
 本文件对应实际 Spring Boot 4.1.2 代码，根包 com.xiye.garden。已检查现有代码、V1/V2、响应/异常处理及前端任务模型。没有可访问的登录设计稿文件，连接页面为空；按需求中的邮箱/密码/登录/忘记密码/注册流程实现。密码显示/隐藏、返回首页、页面跳转由前端处理，没有对应接口。
 
@@ -26,10 +28,11 @@
 3. V3__users_and_authentication.sql：garden_user、garden_email_verification、garden_auth_rate_limit
 4. V4__spring_session_jdbc.sql：SPRING_SESSION、SPRING_SESSION_ATTRIBUTES
 5. V5__task_user_ownership.sql：任务 user_id 外键与按用户查询的组合索引
+6. V6__username_password_authentication.sql：用户名唯一索引、email可空、至少一种身份的CHECK
 
-已有版本不会重复执行；V1/V2 没有修改。禁止删库重建或手动重复执行迁移。Spring Session initialize-schema=never，只有 Flyway 建表。会话表采用 Spring Session JDBC 4.1.1 JAR 的 schema-mysql.sql 字段、键与级联关系，额外补充表注释和默认 utf8mb4。
+已有版本不会重复执行；V1–V5 没有修改。禁止删库重建或手动重复执行迁移。Spring Session initialize-schema=never，只有 Flyway 建表。会话表采用 Spring Session JDBC 4.1.1 JAR 的 schema-mysql.sql 字段、键与级联关系，额外补充表注释和默认 utf8mb4。
 
-用户主键 MySQL BIGINT AUTO_INCREMENT，所有 JSON ID 为十进制字符串；数据库业务时间 UTC DATETIME(6)，API ISO 8601 UTC string，可带小数，未设置的 avatarUrl/lastLoginAt 为 null。Session 表时间采用官方的 epoch 毫秒。
+用户名账号的email为null，邮箱账号的username为null，旧账号不自动分配用户名。用户主键 MySQL BIGINT AUTO_INCREMENT，所有 JSON ID 为十进制字符串；数据库业务时间 UTC DATETIME(6)，API ISO 8601 UTC string，可带小数，未设置的 avatarUrl/lastLoginAt 为 null。Session 表时间采用官方的 epoch 毫秒。
 
 历史任务 user_id=NULL，保留但从全部正常用户 API 隔离，绝不分给第一个注册者。管理员使用 [sql/10_assign_legacy_tasks.sql](../../sql/10_assign_legacy_tasks.sql)，逐条填入经核实的 task_id/user_id 映射，再手动执行；默认空映射不分配任何数据。任务删除仍为逻辑删除，不级联删除历史数据。
 
@@ -76,7 +79,8 @@ SPRING_PROFILES_ACTIVE=local-mail ./mvnw spring-boot:run
 所有 POST/PUT/DELETE（包括匿名注册、登录、发码和密码重置）都需要 CSRF；GET/HEAD/OPTIONS不需要。先 GET /api/auth/csrf，浏览器保存响应 Cookie，同时把 data.token 存在内存，写请求带 data.headerName 指定的 X-CSRF-TOKEN。该端点保留默认 XOR/BREACH 保护，Token 不是 Session ID，不写入 localStorage。
 
 - 首次打开：GET csrf → GET users/me；401为未登录，显示登录页。
-- 注册：GET csrf → POST email-codes(REGISTER) → 用户填写邮件验证码 → POST register → 跳转登录；注册不自动登录。
+- 用户名注册：GET csrf → POST register(username/password) → 跳转登录，无邮件步骤。
+- 邮箱注册：GET csrf → POST email-codes(REGISTER) → 用户填写邮件验证码 → POST register → 跳转登录；注册不自动登录。
 - 登录：GET csrf → POST login → **重新GET csrf** → GET users/me或受保护任务接口。旧Token在登录时清除，不能继续复用。
 - 重置：GET csrf → POST email-codes(RESET_PASSWORD) → POST password/reset → **重新GET csrf** → 回登录页。
 - 退出：POST logout带CSRF → 清理前端用户/任务缓存 → **重新GET csrf**，供下一次登录使用。匿名退出可幂等返回200，但仍需合法CSRF。
@@ -95,13 +99,14 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
 
 | 字段 | 规则 |
 | --- | --- |
-| email | 必填；ASCII邮箱、最多254字符；去首尾空白后整个地址转小写，注册/登录/发码/重置一致；不删除点或加号；数据库唯一 |
+| username | 用户名方式必填；去首尾空白；3–32位英文字母、数字或下划线，字母开头；整体转小写，数据库唯一；与email二选一 |
+| email | 邮箱方式必填；ASCII邮箱、最多254字符；去首尾空白后整个地址转小写，注册/登录/发码/重置一致；不删除点或加号；数据库唯一 |
 | password/newPassword | 必填，8–128个UTF-16字符；允许Unicode和空格，原样编码，不trim、不截断；PBKDF2没有bcrypt的72字节截断问题 |
-| verificationCode | 必填，6位ASCII数字字符串，保留开头0 |
+| verificationCode | 邮箱注册/重置必填；用户名注册不得提交；6位ASCII数字字符串，保留开头0 |
 | nickname | 注册可省略/null/纯空白，默认花园新朋友；最多30字符，保存前strip |
 | purpose | 必填，REGISTER或RESET_PASSWORD，大写枚举 |
 
-未知请求字段返回400；请求不能修改用户status/credentialVersion/avatarUrl，也不能传userId切换身份。独立 RegisterDTO/LoginDTO/EmailCodeDTO/ResetPasswordDTO；响应只返回 UserVO，无passwordHash。
+未知请求字段返回400；请求不能修改用户status/credentialVersion/avatarUrl，也不能传userId切换身份。注册和登录都要求用户名/邮箱二选一。用户名注册不需要验证码，不发送email/verificationCode。未绑定邮箱的用户名账号本期无自助邮箱重置流程。独立 RegisterDTO/LoginDTO/EmailCodeDTO/ResetPasswordDTO；响应只返回 UserVO，无passwordHash。
 
 ## 5. 接口、JSON 示例与响应
 
@@ -149,6 +154,14 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
 
 ### POST /api/auth/register
 
+也支持用户名注册，不需要邮箱验证码：
+
+```json
+{"username":"garden_user","password":"示例密码 🌱 123","nickname":"小花友"}
+```
+
+下面是继续兼容的邮箱注册示例：
+
 需Cookie与CSRF；注册成功不自动登录。
 
 请求 Content-Type: application/json：
@@ -175,12 +188,21 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
     "avatarUrl": null,
     "lastLoginAt": null,
     "createdAt": "2026-11-12T06:00:00Z",
-    "updatedAt": "2026-11-12T06:00:00Z"
+    "updatedAt": "2026-11-12T06:00:00Z",
+    "username": null
   }
 }
 ```
 
 ### POST /api/auth/login
+
+用户名方式：
+
+```json
+{"username":"garden_user","password":"示例密码 🌱 123"}
+```
+
+也可继续使用下面的邮箱方式；不能在同一请求同时传username和email。
 
 需Cookie与CSRF；成功后重新获取csrf。
 
@@ -206,7 +228,8 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
     "avatarUrl": null,
     "lastLoginAt": "2026-11-12T06:05:00Z",
     "createdAt": "2026-11-12T06:00:00Z",
-    "updatedAt": "2026-11-12T06:05:00Z"
+    "updatedAt": "2026-11-12T06:05:00Z",
+    "username": null
   }
 }
 ```
@@ -228,7 +251,8 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
     "avatarUrl": null,
     "lastLoginAt": "2026-11-12T06:05:00Z",
     "createdAt": "2026-11-12T06:00:00Z",
-    "updatedAt": "2026-11-12T06:05:00Z"
+    "updatedAt": "2026-11-12T06:05:00Z",
+    "username": null
   }
 }
 ```
@@ -271,7 +295,7 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
 }
 ```
 
-邮箱验证码发送和校验失败不会返回验证码明文。登录邮箱不存在、密码错误或账号禁用均返回401“邮箱或密码错误”。邮箱是否已注册只在验证邮箱所有权后通过注册409告知。
+邮箱验证码发送和校验失败不会返回验证码明文。登录身份不存在、密码错误或账号禁用均返回401；邮箱方式为“邮箱或密码错误”，用户名方式为“用户名或密码错误”。邮箱是否已注册只在验证邮箱所有权后通过注册409告知。
 
 ## 6. 验证码、并发与限流
 
@@ -279,8 +303,9 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
 - 每邮箱每用途唯一一个验证码槽，新签发原子替换旧码并清零失败次数；旧码立即失效。新码若随机重复会重抽，防止旧码值重新有效。
 - 单码最多5次错误尝试。校验锁定槽位；成功消费与用户插入/密码修改同事务。错误次数即使返回400也提交；并发注册同码仅一次成功。重复消费、用途不符、过期、次数耗尽统一400，不透露具体内部原因。
 - 同邮箱同用途至少间隔60秒，事务内按上次实际签发时间校验，不仅依赖固定窗口计数。
-- 发码每邮箱每用途5次/小时、每IP合计20次/小时；登录每邮箱10次/15分钟、每IP50次/15分钟；验证码校验（注册+重置合计）每邮箱10次/15分钟、每IP30次/15分钟。计数包含成功和失败请求，参数结构通过校验后才计数。
+- 发码每邮箱每用途5次/小时、每IP合计20次/小时；登录每账号（邮箱或用户名）10次/15分钟、每IP50次/15分钟；验证码校验（注册+重置合计）每邮箱10次/15分钟、每IP30次/15分钟。计数包含成功和失败请求，参数结构通过校验后才计数。
 - 限流是固定UTC窗口，MySQL唯一键与原子递增，独立事务提交，重启/多实例共享状态；不同实例需共享MySQL、HMAC密钥并保持时间同步。60秒最小发码间隔另用验证码槽行锁保证。
+- 用户名注册每用户名5次/小时、每IP20次/小时，包含成功与重复冲突请求；不需要邮件验证码，但仍保护CSRF并使用MySQL限流。
 - 返回429 RATE_LIMITED与Retry-After秒数；前端禁用按钮并倒计时，等待后由用户重试。发信失败同样消耗发送限额，避免SMTP故障时被无限重试。
 - SMTP接受之前保持验证码槽锁，发送失败回滚新挑战，保留旧码状态；新槽失败后不留下可用验证码。MySQL提交与SMTP没有分布式事务：若邮件已被SMTP接受但后续提交失败，可能收到不可用验证码，应等待间隔后重发，不能承诺“恰好一次邮件投递”。
 - 每60秒最多清理1000条已结束限流窗口和1000条过期超过24小时的验证码槽，积压由后续批次消化。Session使用框架默认每分钟清理过期会话；读取时也检查过期，不依赖清理任务及时运行。
@@ -291,11 +316,12 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
 | --- | --- | --- |
 | 400 | BAD_REQUEST | 参数/格式错误，保留表单输入 |
 | 400 | VERIFICATION_INVALID | 验证码无效/过期/已用/用途不符/次数耗尽，提示重新获取 |
-| 401 | INVALID_CREDENTIALS | 登录统一“邮箱或密码错误” |
+| 401 | INVALID_CREDENTIALS | 统一不区分身份不存在、密码错误或禁用；按方式提示邮箱/用户名或密码错误 |
 | 401 | UNAUTHORIZED | 未登录、会话过期、禁用或版本失效，清理用户缓存并登录 |
 | 403 | CSRF_INVALID | Token缺失/错误，重新获取csrf，提示重试 |
 | 403 | FORBIDDEN | 无权限；不跳HTML页面 |
 | 404 | NOT_FOUND | 任务不存在或属于其他用户，统一不存在 |
+| 409 | USERNAME_ALREADY_REGISTERED | 用户名冲突，提示更换或登录 |
 | 409 | EMAIL_ALREADY_REGISTERED | 邮箱冲突，提示转登录 |
 | 429 | RATE_LIMITED | 按Retry-After等待，不立即重试 |
 | 503 | MAIL_UNAVAILABLE | SMTP未接受邮件，不显示发送成功 |
@@ -355,6 +381,8 @@ request层统一credentials/include、CSRF、JSON错误与Retry-After；Token只
 [../examples/auth-flow.sh](../examples/auth-flow.sh) 使用curl Cookie jar，并真实获取/携带CSRF Token，交互输入密码与邮件验证码，不把密码放进命令参数或源码：
 
 ```sh
+bash docs/examples/auth-flow.sh username-register # 用户名注册→登录，无邮件步骤
+bash docs/examples/auth-flow.sh username-login    # 用户名登录
 bash docs/examples/auth-flow.sh register  # 发注册码→注册→登录→刷新csrf→me→任务列表→退出
 bash docs/examples/auth-flow.sh login     # 已注册用户登录与退出
 bash docs/examples/auth-flow.sh reset     # 发重置码→改密→新密码登录与退出
@@ -364,4 +392,4 @@ bash docs/examples/auth-flow.sh reset     # 发重置码→改密→新密码登
 
 无数据库测试：`./mvnw test`。真实MySQL：专用空库focus_garden_auth_test（或其他独立测试库），配置TEST_DB_NAME、TEST_DB_USERNAME、TEST_DB_PASSWORD，运行 `./mvnw -Pintegration verify`。测试profile覆盖SMTP，且仅测试代码以Mockito捕获JavaMailSender；生产代码不存在“打印验证码”的替身。测试通过真实HTTP服务器、Cookie jar、CSRF与真实MySQL校验会话/业务行为。
 
-本次结果见根目录README的最新验证记录。真实邮件服务商投递、生产HTTPS反向代理与实际浏览器跨域尚未验证。没有读取设计稿或宣称页面视觉已核对，没有接入OpenAPI框架。
+本次V6与用户名/邮箱流程的结果见根目录README最新验证记录。真实邮件服务商投递、生产HTTPS反向代理与实际浏览器跨域尚未验证。没有读取设计稿或宣称页面视觉已核对，没有接入OpenAPI框架。

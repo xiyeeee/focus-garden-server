@@ -2,7 +2,6 @@ package com.xiye.garden.config;
 
 import com.xiye.garden.auth.security.*;
 import com.xiye.garden.auth.service.AuthService;
-import com.xiye.garden.auth.dto.LoginDTO;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -29,11 +28,11 @@ public class SecurityConfig {
     public AuthenticationManager authenticationManager(
             AuthService auth) {
         return request -> {
-            if (!(request.getPrincipal() instanceof String email) || !(request.getCredentials() instanceof String password)
+            if (!(request.getPrincipal() instanceof String account) || !(request.getCredentials() instanceof String password)
                     || !(request.getDetails() instanceof WebAuthenticationDetails details)) {
-                throw new BadCredentialsException("邮箱或密码错误");
+                throw new BadCredentialsException("账号或密码错误");
             }
-            var principal = auth.login(new LoginDTO(email, password), details.getRemoteAddress());
+            var principal = auth.loginAccount(account, password, details.getRemoteAddress());
             return UsernamePasswordAuthenticationToken.authenticated(principal, null, List.of());
         };
     }

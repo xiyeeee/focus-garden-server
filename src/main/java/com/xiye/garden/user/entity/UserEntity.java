@@ -12,6 +12,7 @@ public class UserEntity {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String email;
+    private String username;
     private String passwordHash;
     private String nickname;
     private String avatarUrl;

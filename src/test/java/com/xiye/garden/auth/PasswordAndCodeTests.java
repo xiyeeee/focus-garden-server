@@ -26,7 +26,7 @@ class PasswordAndCodeTests {
         assertFalse(protector.matches(hash, protector.codeHash("other@example.com", VerificationPurpose.REGISTER, "123456")));
         assertFalse(protector.matches(hash, protector.codeHash("user@example.com", VerificationPurpose.RESET_PASSWORD, "123456")));
         assertTrue(protector.generate().matches("[0-9]{6}"));
-        assertEquals("user@example.com", EmailAddress.normalize(" User@Example.COM "));
+        assertEquals("user@example.com", AccountIdentifier.normalize(" User@Example.COM "));
     }
 
     @Test

@@ -8,8 +8,11 @@ trap 'rm -rf "$GARDEN_TEMP_DIR"; unset GARDEN_PASSWORD GARDEN_CODE' EXIT
 GARDEN_COOKIE_JAR="$GARDEN_TEMP_DIR/cookies"
 touch "$GARDEN_COOKIE_JAR"
 chmod 600 "$GARDEN_COOKIE_JAR"
-read -r -p '邮箱: ' GARDEN_EMAIL
-export GARDEN_EMAIL GARDEN_PASSWORD GARDEN_CODE
+case "$GARDEN_FLOW" in
+  username-register|username-login) read -r -p '用户名: ' GARDEN_USERNAME ;;
+  *) read -r -p '邮箱: ' GARDEN_EMAIL ;;
+esac
+export GARDEN_EMAIL GARDEN_USERNAME GARDEN_PASSWORD GARDEN_CODE
 
 refresh_csrf() {
   GARDEN_CSRF="$(curl --silent --show-error --fail-with-body \
@@ -21,10 +24,10 @@ payload() {
   python3 - "$1" <<'PY'
 import os,json,sys
 mode=sys.argv[1]
-body={'email':os.environ['GARDEN_EMAIL']}
+body={'username':os.environ['GARDEN_USERNAME']} if mode.startswith('username-') else {'email':os.environ['GARDEN_EMAIL']}
 if mode in ('REGISTER','RESET_PASSWORD'): body['purpose']=mode
 if mode in ('register','reset'): body['verificationCode']=os.environ['GARDEN_CODE']
-if mode in ('register','login'): body['password']=os.environ['GARDEN_PASSWORD']
+if mode in ('register','login','username-register','username-login'): body['password']=os.environ['GARDEN_PASSWORD']
 if mode=='reset': body['newPassword']=os.environ['GARDEN_PASSWORD']
 print(json.dumps(body,ensure_ascii=False))
 PY
@@ -39,6 +42,15 @@ post_json() {
 
 refresh_csrf
 case "$GARDEN_FLOW" in
+  username-register)
+    read -r -s -p '设置密码（8–128字符）: ' GARDEN_PASSWORD
+    printf '\n'
+    payload username-register | post_json /api/auth/register
+    ;;
+  username-login)
+    read -r -s -p '密码: ' GARDEN_PASSWORD
+    printf '\n'
+    ;;
   register)
     payload REGISTER | post_json /api/auth/email-codes
     read -r -p '收到的注册验证码: ' GARDEN_CODE
@@ -58,9 +70,12 @@ case "$GARDEN_FLOW" in
     read -r -s -p '密码: ' GARDEN_PASSWORD
     printf '\n'
     ;;
-  *) printf '用法: bash docs/examples/auth-flow.sh [register|login|reset]\n'; exit 2 ;;
+  *) printf '用法: bash docs/examples/auth-flow.sh [username-register|username-login|register|login|reset]\n'; exit 2 ;;
 esac
-payload login | post_json /api/auth/login
+case "$GARDEN_FLOW" in
+  username-register|username-login) payload username-login | post_json /api/auth/login ;;
+  *) payload login | post_json /api/auth/login ;;
+esac
 # Authentication rotates the session and clears the old CSRF token.
 refresh_csrf
 curl --silent --show-error --fail-with-body -c "$GARDEN_COOKIE_JAR" -b "$GARDEN_COOKIE_JAR" "$GARDEN_BASE_URL/api/users/me"

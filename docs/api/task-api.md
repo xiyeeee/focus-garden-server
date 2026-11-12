@@ -22,7 +22,7 @@ set +a
 
 Spring Boot 不自动读取 `.env`，上面的 shell 命令负责导出。连接配置：`DB_HOST=localhost`、`DB_PORT=3306`、`DB_NAME=focus_garden`；`DB_USERNAME/DB_PASSWORD` 必填；账号须有该开发库的 SELECT/INSERT/UPDATE/DELETE/CREATE/ALTER/INDEX/REFERENCES 权限。账号创建参考根目录 README，密码不提交。端口可用 `SERVER_PORT` 调整。
 
-首次启动 Flyway 执行 V1–V5：任务表、字段补全、用户/验证码/限流表、官方Session表、任务归属列。已有版本不重复执行；已执行迁移不修改，后续新增V6。禁止手动重复执行Flyway管理的脚本。历史任务user_id=NULL保持隔离，仅按核实后的显式映射由管理员迁移，见auth-api.md。
+首次启动 Flyway 执行 V1–V6：任务表、字段补全、用户/验证码/限流表、官方Session表、任务归属列与用户名登录身份。已有版本不重复执行；已执行迁移不修改，后续新增V7。禁止手动重复执行Flyway管理的脚本。历史任务user_id=NULL保持隔离，仅按核实后的显式映射由管理员迁移，见auth-api.md。
 
 前端当前已有 Axios，设置 `VITE_API_BASE_URL=http://localhost:8080/api` 可使用后端 CORS：默认允许精确源 `http://localhost:5173`，更换前端端口后同步设置 `CORS_ALLOWED_ORIGINS`，多个源逗号分隔。该变量配置不会自动将现有 mockService 切为 HTTP。
 
@@ -387,4 +387,4 @@ const page = response.data.data;
 
 `./mvnw verify` 执行不依赖数据库的 MVC/Service 测试与打包。真实数据库测试使用专用 `focus_garden_test` 空库与 TEST_DB_USERNAME/TEST_DB_PASSWORD，执行 `./mvnw -Pintegration verify`；请使用仅有测试库权限的账号，不连接生产库。
 
-本次 SQL 执行情况和最终检查结果见根目录 README 的最新验证记录。V1–V5 已在独立MySQL测试库执行，任务和认证集成测试通过。真实SMTP投递与生产HTTPS尚未验证。项目没有OpenAPI配置，不新增框架。
+本次 SQL 执行情况和最终检查结果见根目录 README 的最新验证记录。V1–V6 已在独立MySQL测试库执行，任务和认证集成测试通过。真实SMTP投递与生产HTTPS尚未验证。项目没有OpenAPI配置，不新增框架。

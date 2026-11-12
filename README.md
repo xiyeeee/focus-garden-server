@@ -1,9 +1,10 @@
 # 专注花园后端
 
-Java 21 / Spring Boot 4.1.2 / MySQL / MyBatis-Plus。已实现任务、邮箱验证码注册、登录、当前用户、退出和密码重置；使用 Spring Security + MySQL Session + CSRF，没有 JWT 或 Redis。保留根包 com.xiye.garden，未实现专注、植物收藏、统计与角色后台。
+Java 21 / Spring Boot 4.1.2 / MySQL / MyBatis-Plus。已实现任务、用户名密码注册/登录、邮箱验证码注册/登录、当前用户、退出和邮箱验证码密码重置；使用 Spring Security + MySQL Session + CSRF，没有 JWT 或 Redis。保留根包 com.xiye.garden，未实现专注、植物收藏、统计与角色后台。
 
 前端交付入口：
 
+- [用户名快速对接](docs/api/username-auth-api.md)：无邮箱/验证码注册、登录、请求与响应示例。
 - [认证接口文档](docs/api/auth-api.md)：全部接口、JSON示例、Cookie/CSRF、SMTP、本地运行与错误处理。
 - [任务接口文档](docs/api/task-api.md)：字段、分页、状态与用户隔离。
 - [认证TS类型](docs/api/auth-types.ts)、[任务TS类型](docs/api/task-types.ts)、[共用请求层](docs/api/auth-client.ts)、[任务请求](docs/api/task-client.ts)、[现有前端映射](docs/api/task-adapter.ts)。
@@ -46,8 +47,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES
 3. V3__users_and_authentication.sql：用户、HMAC验证码槽、持久化限流。
 4. V4__spring_session_jdbc.sql：官方Session及属性表。
 5. V5__task_user_ownership.sql：用户归属外键与组合索引。
+6. V6__username_password_authentication.sql：唯一用户名、可空邮箱、身份CHECK。
 
-V1/V2未修改。已执行版本不会重复运行；后续新增V6。禁止手工重复执行Flyway管理的脚本、删库重建或启用baseline/clean绕过错误。Spring Session自动建表已关闭。
+V1–V5未修改。V6保留现有邮箱账号，不自动分配用户名；用户名账号email=NULL。已执行版本不会重复运行；后续新增V7。禁止手工重复执行Flyway管理的脚本、删库重建或启用baseline/clean绕过错误。Spring Session自动建表已关闭。
 
 历史任务user_id=NULL保留并隔离，所有新任务从认证上下文设置归属。只有管理员核实后才能使用[逐项归属脚本](sql/10_assign_legacy_tasks.sql)填入映射，不自动分给新用户；脚本默认空映射不修改任务。
 
@@ -97,14 +99,17 @@ AuthDatabaseIT启动真实HTTP服务器，用Cookie jar及真实CSRF交互，Ses
 
 ## 最新验证记录（2026-11-12）
 
-- 真实MySQL 8.4.10的独立focus_garden_auth_test库已执行V1–V5，应用成功启动；未启动或迁移用户开发库。
-- 25项无数据库测试、13项MySQL/HTTP集成测试通过，0失败、0错误、0跳过；完成可执行JAR打包。
+- 真实MySQL 8.4.10的独立focus_garden_auth_test库已执行V1–V6，应用成功启动；未启动或迁移用户开发库。
+- 25项无数据库测试、17项MySQL/HTTP集成测试通过，0失败、0错误、0跳过；完成可执行JAR打包。
+- 新增用户名注册/登录、无邮件调用、大小写归一、并发唯一冲突、非法/混合身份参数、禁用用户、用户名注册及登录限流；保留邮箱全部测试。
 - 覆盖注册、邮箱规范化/重复冲突、错码/过期/用途/重复消费/并发消费、失败次数落库、SMTP失败回滚、登录/错误密码/禁用、会话轮换及MySQL持久化、CSRF、退出、过期、改密后旧密码和所有旧会话失效、用户任务隔离、历史任务隔离、邮箱/IP限流、Cookie与明确来源CORS。
-- docs/api全部TS文件严格类型检查通过；curl脚本bash语法检查通过。脚本完整交互未实际向SMTP发送，真实邮件服务商投递、生产HTTPS代理及浏览器跨域未验证。没有可读设计稿，未核对视觉设计。
+- docs/api全部TS文件严格类型检查通过；curl脚本bash语法检查通过，新增用户名注册→登录→CSRF刷新→me→任务列表→退出流程已通过真实HTTP执行；无邮件调用。邮箱脚本完整交互未实际向SMTP发送，真实邮件服务商投递、生产HTTPS代理及浏览器跨域未验证。没有可读设计稿，未核对视觉设计。
 - Maven全局仓库访问受阻，实际使用临时Central settings执行 `./mvnw -s /tmp/focus-garden-maven-settings.xml -B -Pintegration clean verify`；未改全局Maven配置，普通环境使用标准Wrapper命令。
 
 ## 变更范围
 
 新增auth模块：controller、独立DTO、验证码Entity/Mapper、HMAC保护、SMTP发送、限流、注册/登录/重置服务、认证身份/会话校验与JSON安全响应。新增user模块：UserEntity、UserMapper、UserVO、当前用户接口。没有重复PO，没有角色后台。
 
-修改SecurityConfig/WebConfig、统一异常处理、TaskEntity/TaskMapper/TaskService、application配置、pom及.env.example。新增V3/V4/V5、历史归属SQL、prod/local-mail配置。更新原有测试并新增PasswordAndCodeTests、AuthDatabaseIT；新增认证文档、TS类型/请求层与交互脚本，并同步任务文档/请求。前端业务组件、mockService和后续模块未改动。
+修改SecurityConfig/WebConfig、统一异常处理、TaskEntity/TaskMapper/TaskService、application配置、pom及.env.example。新增V3/V4/V5/V6、历史归属SQL、prod/local-mail配置。更新原有测试并新增PasswordAndCodeTests、AuthDatabaseIT；新增认证文档、TS类型/请求层与交互脚本，并同步任务文档/请求。前端业务组件、mockService和后续模块未改动。
+
+本次用户名扩展修改RegisterDTO、LoginDTO、AuthService、AuthenticationManager和登录Controller；EmailAddress规范化帮助类改为AccountIdentifier，供两种身份共用。UserEntity/UserMapper/UserVO补充username，UserVO.email可为null。AuthRateLimiter新增用户名注册限流，登录改为账号限流；不变更依赖版本。前端新增username-auth-api.md，并同步总认证文档、TS联合类型、curl示例和README。

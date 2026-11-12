@@ -17,19 +17,23 @@ public class AuthRateLimiter {
     private final Clock clock;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = AuthProblem.class)
-    public void check(String operation, String email, String ip) {
+    public void check(String operation, String identity, String ip) {
         switch (operation) {
             case "send:REGISTER", "send:RESET_PASSWORD" -> {
-                hit(operation + ":cooldown:" + email, 1, 60);
-                hit(operation + ":email:" + email, 5, 3600);
+                hit(operation + ":cooldown:" + identity, 1, 60);
+                hit(operation + ":email:" + identity, 5, 3600);
                 hit("send:ip:" + ip, 20, 3600);
             }
             case "login" -> {
-                hit("login:email:" + email, 10, 900);
+                hit("login:account:" + identity, 10, 900);
                 hit("login:ip:" + ip, 50, 900);
             }
+            case "register" -> {
+                hit("register:username:" + identity, 5, 3600);
+                hit("register:ip:" + ip, 20, 3600);
+            }
             case "verify" -> {
-                hit("verify:email:" + email, 10, 900);
+                hit("verify:email:" + identity, 10, 900);
                 hit("verify:ip:" + ip, 30, 900);
             }
             default -> throw new IllegalArgumentException("未知的限流操作");

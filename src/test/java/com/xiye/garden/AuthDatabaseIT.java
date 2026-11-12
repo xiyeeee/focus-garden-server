@@ -41,7 +41,7 @@ class AuthDatabaseIT {
     @BeforeEach
     void captureTestMail() {
         // Reset only this test client's IP buckets in the independent integration database.
-        for (String operation : List.of("send", "verify", "login")) {
+        for (String operation : List.of("send", "verify", "login", "register")) {
             jdbc.update("DELETE FROM garden_auth_rate_limit WHERE bucket_key=?", protector.digest("rate:" + operation + ":ip:127.0.0.1"));
         }
         doAnswer(invocation -> {
@@ -270,6 +270,93 @@ class AuthDatabaseIT {
         long start = epoch - epoch % window;
         jdbc.update("INSERT INTO garden_auth_rate_limit(bucket_key,window_start,attempts,expires_at) VALUES (?,?,?,UTC_TIMESTAMP(6)+INTERVAL 1 HOUR) ON DUPLICATE KEY UPDATE attempts=VALUES(attempts)",
                 protector.digest("rate:" + dimension), start, attempts);
+    }
+
+    @Test
+    void usernameRegistrationAndLoginWorkWithoutEmailOrCode() throws Exception {
+        Browser browser = new Browser();
+        browser.refreshCsrf();
+        String username = username();
+        var response = browser.call("POST", "/api/auth/register", Map.of("username", " " + username.toUpperCase(Locale.ROOT) + " ",
+                "password", PASSWORD, "nickname", "用户名花友"));
+        assertEquals(201, response.statusCode());
+        var user = body(response).path("data");
+        assertEquals(username, user.path("username").asText());
+        assertTrue(user.path("email").isNull());
+        assertEquals(401, browser.call("GET", "/api/users/me", null).statusCode());
+        verify(mail, never()).send(any(SimpleMailMessage.class));
+        String hash = jdbc.queryForObject("SELECT password_hash FROM garden_user WHERE username=?", String.class, username);
+        assertTrue(hash != null && hash.startsWith("{pbkdf2@SpringSecurity_v5_8}"));
+        assertEquals(200, browser.call("POST", "/api/auth/login", Map.of("username", username.toUpperCase(Locale.ROOT), "password", PASSWORD)).statusCode());
+        browser.refreshCsrf();
+        assertEquals(username, body(browser.call("GET", "/api/users/me", null)).path("data").path("username").asText());
+        assertEquals(201, browser.call("POST", "/api/tasks", task()).statusCode());
+        assertEquals(200, browser.call("POST", "/api/auth/logout", null).statusCode());
+        assertEquals(401, browser.call("GET", "/api/users/me", null).statusCode());
+    }
+
+    @Test
+    void usernameDuplicateConcurrentRegistrationAndLoginFailureAreHandled() throws Exception {
+        String username = username();
+        Browser first = new Browser();
+        Browser second = new Browser();
+        first.refreshCsrf();
+        second.refreshCsrf();
+        var payload = Map.<String, Object>of("username", username, "password", PASSWORD);
+        var attempts = List.of(CompletableFuture.supplyAsync(() -> postRegistration(first, payload)),
+                CompletableFuture.supplyAsync(() -> postRegistration(second, payload)));
+        assertEquals(List.of(201, 409), attempts.stream().map(CompletableFuture::join).sorted().toList());
+        var duplicate = first.call("POST", "/api/auth/register", Map.of("username", username.toUpperCase(Locale.ROOT), "password", PASSWORD));
+        assertEquals(409, duplicate.statusCode());
+        assertEquals("USERNAME_ALREADY_REGISTERED", body(duplicate).path("code").asText());
+        var wrong = first.call("POST", "/api/auth/login", Map.of("username", username, "password", "wrongpass"));
+        assertEquals(401, wrong.statusCode());
+        assertEquals("用户名或密码错误", body(wrong).path("message").asText());
+        jdbc.update("UPDATE garden_user SET status='DISABLED' WHERE username=?", username);
+        assertEquals(401, first.call("POST", "/api/auth/login", payload).statusCode());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM garden_user WHERE username=?", Integer.class, username));
+    }
+
+    @Test
+    void registrationAndLoginRejectInvalidOrAmbiguousIdentity() throws Exception {
+        Browser browser = new Browser();
+        browser.refreshCsrf();
+        for (String invalid : List.of("ab", "2bad", "bad-name", "花友名字", "a".repeat(33), "")) {
+            assertEquals(400, browser.call("POST", "/api/auth/register", Map.of("username", invalid, "password", PASSWORD)).statusCode());
+        }
+        assertEquals(400, browser.call("POST", "/api/auth/register", Map.of("username", username(), "email", email(),
+                "verificationCode", "123456", "password", PASSWORD)).statusCode());
+        assertEquals(400, browser.call("POST", "/api/auth/register", Map.of("email", email(), "password", PASSWORD)).statusCode());
+        assertEquals(400, browser.call("POST", "/api/auth/login", Map.of("email", email(), "username", username(), "password", PASSWORD)).statusCode());
+        assertEquals(400, browser.call("POST", "/api/auth/login", Map.of("password", PASSWORD)).statusCode());
+        verify(mail, never()).send(any(SimpleMailMessage.class));
+    }
+
+    @Test
+    void usernameRegistrationAndLoginRateLimitsAreEnforced() throws Exception {
+        Browser browser = new Browser();
+        browser.refreshCsrf();
+        String username = username();
+        var payload = Map.<String, Object>of("username", username, "password", PASSWORD);
+        assertEquals(201, browser.call("POST", "/api/auth/register", payload).statusCode());
+        for (int attempt = 0; attempt < 4; attempt++) {
+            assertEquals(409, browser.call("POST", "/api/auth/register", payload).statusCode());
+        }
+        assertEquals(429, browser.call("POST", "/api/auth/register", payload).statusCode());
+        String unknownUsername = username();
+        for (int attempt = 0; attempt < 10; attempt++) {
+            assertEquals(401, browser.call("POST", "/api/auth/login", Map.of("username", unknownUsername, "password", PASSWORD)).statusCode());
+        }
+        assertEquals(429, browser.call("POST", "/api/auth/login", Map.of("username", unknownUsername, "password", PASSWORD)).statusCode());
+        seedRate("register:ip:127.0.0.1", 20, 3600);
+        assertEquals(429, browser.call("POST", "/api/auth/register", Map.of("username", username(), "password", PASSWORD)).statusCode());
+    }
+
+    private String username() { return "user_" + UUID.randomUUID().toString().replace("-", "").substring(0, 20); }
+
+    private int postRegistration(Browser browser, Map<String, Object> payload) {
+        try { return browser.call("POST", "/api/auth/register", payload).statusCode(); }
+        catch (Exception exception) { throw new IllegalStateException("并发注册请求失败", exception); }
     }
 
     private String registered() throws Exception {

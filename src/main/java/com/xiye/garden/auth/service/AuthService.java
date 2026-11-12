@@ -38,14 +38,24 @@ public class AuthService {
 
     @Transactional(noRollbackFor = AuthProblem.class)
     public UserVO register(RegisterDTO request, String ip) {
-        String email = EmailAddress.normalize(request.email());
+        if (request.username() != null) {
+            String username = AccountIdentifier.normalize(request.username());
+            limiter.check("register", username, ip);
+            return createUser(null, username, request.password(), request.nickname());
+        }
+        String email = AccountIdentifier.normalize(request.email());
         limiter.check("verify", email, ip);
         verification.consume(email, VerificationPurpose.REGISTER, request.verificationCode());
+        return createUser(email, null, request.password(), request.nickname());
+    }
+
+    private UserVO createUser(String email, String username, String password, String nickname) {
         var now = LocalDateTime.now(clock).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         var user = new UserEntity();
         user.setEmail(email);
-        user.setPasswordHash(passwords.encode(request.password()));
-        user.setNickname(request.nickname() == null || request.nickname().isBlank() ? "花园新朋友" : request.nickname().strip());
+        user.setUsername(username);
+        user.setPasswordHash(passwords.encode(password));
+        user.setNickname(nickname == null || nickname.isBlank() ? "花园新朋友" : nickname.strip());
         user.setStatus("ACTIVE");
         user.setCredentialVersion(1);
         user.setCreatedAt(now);
@@ -53,19 +63,24 @@ public class AuthService {
         try {
             users.insert(user);
         } catch (DuplicateKeyException exception) {
+            if (username != null) {
+                throw new AuthProblem(HttpStatus.CONFLICT, "USERNAME_ALREADY_REGISTERED", "该用户名已注册，请更换用户名或直接登录");
+            }
             throw new AuthProblem(HttpStatus.CONFLICT, "EMAIL_ALREADY_REGISTERED", "该邮箱已注册，请直接登录");
         }
         return UserVO.from(user);
     }
 
     @Transactional
-    public GardenPrincipal login(LoginDTO request, String ip) {
-        String email = EmailAddress.normalize(request.email());
-        limiter.check("login", email, ip);
-        var user = users.lockByEmail(email);
-        boolean matches = passwords.matches(request.password(), user == null ? dummyHash : user.getPasswordHash());
+    public GardenPrincipal loginAccount(String account, String password, String ip) {
+        String identity = AccountIdentifier.normalize(account);
+        limiter.check("login", identity, ip);
+        boolean emailLogin = identity.contains("@");
+        var user = emailLogin ? users.lockByEmail(identity) : users.lockByUsername(identity);
+        boolean matches = passwords.matches(password, user == null ? dummyHash : user.getPasswordHash());
         if (user == null || !matches || !"ACTIVE".equals(user.getStatus())) {
-            throw new AuthProblem(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", "邮箱或密码错误");
+            throw new AuthProblem(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS",
+                    emailLogin ? "邮箱或密码错误" : "用户名或密码错误");
         }
         var now = LocalDateTime.now(clock).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         user.setLastLoginAt(now);
@@ -76,7 +91,7 @@ public class AuthService {
 
     @Transactional(noRollbackFor = AuthProblem.class)
     public void resetPassword(ResetPasswordDTO request, String ip) {
-        String email = EmailAddress.normalize(request.email());
+        String email = AccountIdentifier.normalize(request.email());
         limiter.check("verify", email, ip);
         verification.consume(email, VerificationPurpose.RESET_PASSWORD, request.verificationCode());
         var user = users.lockByEmail(email);

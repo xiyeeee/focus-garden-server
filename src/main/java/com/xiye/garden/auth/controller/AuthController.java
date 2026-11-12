@@ -36,7 +36,7 @@ public class AuthController {
 
     @PostMapping("/email-codes")
     public ApiResponse<Void> send(@Valid @RequestBody EmailCodeDTO request, HttpServletRequest http) {
-        verification.send(EmailAddress.normalize(request.email()), request.purpose(), http.getRemoteAddr());
+        verification.send(AccountIdentifier.normalize(request.email()), request.purpose(), http.getRemoteAddr());
         return new ApiResponse<>("OK", "如可处理，验证码将发送至该邮箱，请查收", null);
     }
 
@@ -48,7 +48,7 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<UserVO>> login(@Valid @RequestBody LoginDTO request, HttpServletRequest http,
                                                    HttpServletResponse response) {
-        var loginRequest = UsernamePasswordAuthenticationToken.unauthenticated(request.email(), request.password());
+        var loginRequest = UsernamePasswordAuthenticationToken.unauthenticated(request.account(), request.password());
         loginRequest.setDetails(new org.springframework.security.web.authentication.WebAuthenticationDetailsSource().buildDetails(http));
         var authentication = authenticationManager.authenticate(loginRequest);
         var principal = (GardenPrincipal) authentication.getPrincipal();
