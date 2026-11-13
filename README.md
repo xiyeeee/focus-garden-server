@@ -1,5 +1,7 @@
 # 专注花园后端
 
+自动测试、推送阿里云镜像和SSH发布配置见 [GitHub Actions部署说明](docs/deployment/github-actions.md)。需在仓库配置ACR和SSH Secrets后才能部署。
+
 Java 21 / Spring Boot 4.1.2 / MySQL / MyBatis-Plus。已实现任务、用户名密码注册/登录、邮箱验证码注册/登录、当前用户、退出和邮箱验证码密码重置；使用 Spring Security + MySQL Session + CSRF，没有 JWT 或 Redis。保留根包 com.xiye.garden，未实现专注、植物收藏、统计与角色后台。
 
 前端交付入口：
