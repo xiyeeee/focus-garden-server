@@ -12,7 +12,7 @@ case "$GARDEN_FLOW" in
   username-register|username-login) read -r -p '用户名: ' GARDEN_USERNAME ;;
   *) read -r -p '邮箱: ' GARDEN_EMAIL ;;
 esac
-export GARDEN_EMAIL GARDEN_USERNAME GARDEN_PASSWORD GARDEN_CODE
+export GARDEN_EMAIL GARDEN_USERNAME GARDEN_PASSWORD GARDEN_CODE GARDEN_NICKNAME
 
 refresh_csrf() {
   GARDEN_CSRF="$(curl --silent --show-error --fail-with-body \
@@ -28,6 +28,7 @@ body={'username':os.environ['GARDEN_USERNAME']} if mode.startswith('username-') 
 if mode in ('REGISTER','RESET_PASSWORD'): body['purpose']=mode
 if mode in ('register','reset'): body['verificationCode']=os.environ['GARDEN_CODE']
 if mode in ('register','login','username-register','username-login'): body['password']=os.environ['GARDEN_PASSWORD']
+if mode=='register' and os.environ.get('GARDEN_NICKNAME'): body['nickname']=os.environ['GARDEN_NICKNAME']
 if mode=='reset': body['newPassword']=os.environ['GARDEN_PASSWORD']
 print(json.dumps(body,ensure_ascii=False))
 PY
@@ -52,6 +53,7 @@ case "$GARDEN_FLOW" in
     printf '\n'
     ;;
   register)
+    read -r -p '昵称（选填，填写后也可用于登录，不可重复）: ' GARDEN_NICKNAME
     payload REGISTER | post_json /api/auth/email-codes
     read -r -p '收到的注册验证码: ' GARDEN_CODE
     read -r -s -p '设置密码（8–128字符，保留空格）: ' GARDEN_PASSWORD

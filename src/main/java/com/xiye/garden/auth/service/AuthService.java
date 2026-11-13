@@ -46,7 +46,8 @@ public class AuthService {
         String email = AccountIdentifier.normalize(request.email());
         limiter.check("verify", email, ip);
         verification.consume(email, VerificationPurpose.REGISTER, request.verificationCode());
-        return createUser(email, null, request.password(), request.nickname());
+        String username = request.nickname() == null ? null : AccountIdentifier.normalize(request.nickname());
+        return createUser(email, username, request.password(), request.nickname());
     }
 
     private UserVO createUser(String email, String username, String password, String nickname) {
@@ -63,10 +64,10 @@ public class AuthService {
         try {
             users.insert(user);
         } catch (DuplicateKeyException exception) {
-            if (username != null) {
-                throw new AuthProblem(HttpStatus.CONFLICT, "USERNAME_ALREADY_REGISTERED", "该用户名已重复，请更换用户名或直接登录");
+            if (email != null && users.lockByEmail(email) != null) {
+                throw new AuthProblem(HttpStatus.CONFLICT, "EMAIL_ALREADY_REGISTERED", "该邮箱已注册，请直接登录");
             }
-            throw new AuthProblem(HttpStatus.CONFLICT, "EMAIL_ALREADY_REGISTERED", "该邮箱已注册，请直接登录");
+            throw new AuthProblem(HttpStatus.CONFLICT, "USERNAME_ALREADY_REGISTERED", "该昵称或用户名已重复，请更换昵称或直接登录");
         }
         return UserVO.from(user);
     }

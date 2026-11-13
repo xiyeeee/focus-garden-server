@@ -334,8 +334,75 @@ class AuthDatabaseIT {
     }
 
     @Test
+    void emailNicknameBecomesUniqueLoginUsernameAndKeepsEmailLogin() throws Exception {
+        Browser browser = new Browser();
+        browser.refreshCsrf();
+        String email = email();
+        String nickname = "花友_" + username().toUpperCase(Locale.ROOT);
+        String code = sendCode(browser, email, "REGISTER");
+        var payload = Map.<String, Object>of("email", email, "password", PASSWORD,
+                "verificationCode", code, "nickname", " " + nickname + " ");
+        var response = browser.call("POST", "/api/auth/register", payload);
+        assertEquals(201, response.statusCode());
+        assertEquals(nickname, body(response).path("data").path("nickname").asText());
+        String username = nickname.toLowerCase(Locale.ROOT);
+        assertEquals(username, body(response).path("data").path("username").asText());
+        assertEquals(username, jdbc.queryForObject("SELECT username FROM garden_user WHERE email=?", String.class, email));
+        assertEquals(200, browser.call("POST", "/api/auth/login", Map.of("username", nickname, "password", PASSWORD)).statusCode());
+        browser.refreshCsrf();
+        assertEquals(email, body(browser.call("GET", "/api/users/me", null)).path("data").path("email").asText());
+        assertEquals(200, login(email).call("GET", "/api/users/me", null).statusCode());
+
+        Browser duplicate = new Browser();
+        duplicate.refreshCsrf();
+        String otherEmail = email();
+        String otherCode = sendCode(duplicate, otherEmail, "REGISTER");
+        var conflict = duplicate.call("POST", "/api/auth/register", Map.of("email", otherEmail,
+                "password", PASSWORD, "verificationCode", otherCode, "nickname", username));
+        assertEquals(409, conflict.statusCode());
+        assertEquals("USERNAME_ALREADY_REGISTERED", body(conflict).path("code").asText());
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM garden_user WHERE email=?", Integer.class, otherEmail));
+    }
+
+    @Test
+    void concurrentEmailRegistrationsCannotClaimSameNickname() throws Exception {
+        Browser first = new Browser();
+        Browser second = new Browser();
+        first.refreshCsrf();
+        second.refreshCsrf();
+        String firstEmail = email();
+        String secondEmail = email();
+        String nickname = username();
+        var firstPayload = Map.<String, Object>of("email", firstEmail, "password", PASSWORD,
+                "verificationCode", sendCode(first, firstEmail, "REGISTER"), "nickname", nickname);
+        var secondPayload = Map.<String, Object>of("email", secondEmail, "password", PASSWORD,
+                "verificationCode", sendCode(second, secondEmail, "REGISTER"), "nickname", nickname.toUpperCase(Locale.ROOT));
+        var attempts = List.of(CompletableFuture.supplyAsync(() -> postRegistration(first, firstPayload)),
+                CompletableFuture.supplyAsync(() -> postRegistration(second, secondPayload)));
+        assertEquals(List.of(201, 409), attempts.stream().map(CompletableFuture::join).sorted().toList());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM garden_user WHERE username=?", Integer.class, nickname));
+    }
+
+    @Test
+    void invalidNicknameIsRejectedAndOmittedNicknameRemainsEmailOnly() throws Exception {
+        Browser browser = new Browser();
+        browser.refreshCsrf();
+        for (String invalid : List.of("user@example.com", "bad\nname", "a".repeat(31))) {
+            assertEquals(400, browser.call("POST", "/api/auth/register", Map.of("email", email(),
+                    "password", PASSWORD, "verificationCode", "123456", "nickname", invalid)).statusCode());
+        }
+        String email = email();
+        var response = browser.call("POST", "/api/auth/register", Map.of("email", email,
+                "password", PASSWORD, "verificationCode", sendCode(browser, email, "REGISTER")));
+        assertEquals(201, response.statusCode());
+        assertTrue(body(response).path("data").path("username").isNull());
+        assertEquals("花园新朋友", body(response).path("data").path("nickname").asText());
+    }
+
+    @Test
     void emailAccountCanBindUsernameOnceWithDuplicateRejected() throws Exception {
         String email = registered();
+        jdbc.update("UPDATE garden_user SET username=NULL WHERE email=?", email); // 模拟昵称冲突而未回填的历史邮箱账号
         Browser browser = login(email);
         String username = username();
         var bind = browser.call("PUT", "/api/users/me/username", Map.of("username", " " + username.toUpperCase(Locale.ROOT) + " "));
@@ -356,6 +423,7 @@ class AuthDatabaseIT {
         assertEquals(200, browser.call("POST", "/api/auth/login", Map.of("email", email, "password", PASSWORD)).statusCode());
 
         String otherEmail = registered();
+        jdbc.update("UPDATE garden_user SET username=NULL WHERE email=?", otherEmail);
         Browser other = login(otherEmail);
         var duplicate = other.call("PUT", "/api/users/me/username", Map.of("username", username.toUpperCase(Locale.ROOT)));
         assertEquals(409, duplicate.statusCode());
@@ -424,7 +492,7 @@ class AuthDatabaseIT {
     }
 
     private Map<String, Object> registration(String email, String code) {
-        return Map.of("email", email, "password", PASSWORD, "verificationCode", code, "nickname", "测试花友");
+        return Map.of("email", email, "password", PASSWORD, "verificationCode", code, "nickname", "花友_" + email.strip().toLowerCase(Locale.ROOT).substring(0, 20));
     }
 
     private Map<String, Object> task() {

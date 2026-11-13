@@ -3,6 +3,7 @@ export interface EmailCodeDTO { email: string; purpose: VerificationPurpose }
 
 export interface PasswordRegistrationFields {
   password: string;
+  /** 邮箱注册显式昵称同时生成唯一登录名；最多30字符，禁止@和控制字符。 */
   nickname?: string | null;
 }
 /** 注册方式二选一；用户名注册不发送邮箱验证码。 */

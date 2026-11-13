@@ -1,6 +1,6 @@
 # 用户名、邮箱与 Session 认证接口
 
-用户名快速接入见 [username-auth-api.md](username-auth-api.md)，用户名注册不需要邮箱或验证码，原邮箱流程保留。
+用户名快速接入见 [username-auth-api.md](username-auth-api.md)，用户名注册不需要邮箱或验证码，原邮箱流程保留。当前注册页复用昵称为登录名，见 [昵称登录对接](nickname-login-api.md)。
 
 本文件对应实际 Spring Boot 4.1.2 代码，根包 com.xiye.garden。已检查现有代码、V1/V2、响应/异常处理及前端任务模型。没有可访问的登录设计稿文件，连接页面为空；按需求中的邮箱/密码/登录/忘记密码/注册流程实现。密码显示/隐藏、返回首页、页面跳转由前端处理，没有对应接口。
 
@@ -29,10 +29,11 @@
 4. V4__spring_session_jdbc.sql：SPRING_SESSION、SPRING_SESSION_ATTRIBUTES
 5. V5__task_user_ownership.sql：任务 user_id 外键与按用户查询的组合索引
 6. V6__username_password_authentication.sql：用户名唯一索引、email可空、至少一种身份的CHECK
+7. V7__nickname_login_username.sql：支持中文登录名，回填唯一可用历史昵称
 
 已有版本不会重复执行；V1–V5 没有修改。禁止删库重建或手动重复执行迁移。Spring Session initialize-schema=never，只有 Flyway 建表。会话表采用 Spring Session JDBC 4.1.1 JAR 的 schema-mysql.sql 字段、键与级联关系，额外补充表注释和默认 utf8mb4。
 
-用户名账号的email为null，邮箱账号的username为null，旧账号不自动分配用户名。用户主键 MySQL BIGINT AUTO_INCREMENT，所有 JSON ID 为十进制字符串；数据库业务时间 UTC DATETIME(6)，API ISO 8601 UTC string，可带小数，未设置的 avatarUrl/lastLoginAt 为 null。Session 表时间采用官方的 epoch 毫秒。
+用户名账号的email可为null；邮箱注册填写昵称时生成username，未填才为null。V7仅给唯一可用的历史昵称回填登录名。用户主键 MySQL BIGINT AUTO_INCREMENT，所有 JSON ID 为十进制字符串；数据库业务时间 UTC DATETIME(6)，API ISO 8601 UTC string，可带小数，未设置的 avatarUrl/lastLoginAt 为 null。Session 表时间采用官方的 epoch 毫秒。
 
 历史任务 user_id=NULL，保留但从全部正常用户 API 隔离，绝不分给第一个注册者。管理员使用 [sql/10_assign_legacy_tasks.sql](../../sql/10_assign_legacy_tasks.sql)，逐条填入经核实的 task_id/user_id 映射，再手动执行；默认空映射不分配任何数据。任务删除仍为逻辑删除，不级联删除历史数据。
 
@@ -99,11 +100,11 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
 
 | 字段 | 规则 |
 | --- | --- |
-| username | 用户名方式必填；去首尾空白；3–32位英文字母、数字或下划线，字母开头；整体转小写，数据库唯一；与email二选一 |
+| username | 显式注册/绑定采用3至32位英文字母开头的字母数字下划线；登录接受1至32位昵称或原用户名，禁止@和控制字符；去首尾空白并转小写，与email二选一 |
 | email | 邮箱方式必填；ASCII邮箱、最多254字符；去首尾空白后整个地址转小写，注册/登录/发码/重置一致；不删除点或加号；数据库唯一 |
 | password/newPassword | 必填，8–128个UTF-16字符；允许Unicode和空格，原样编码，不trim、不截断；PBKDF2没有bcrypt的72字节截断问题 |
 | verificationCode | 邮箱注册/重置必填；用户名注册不得提交；6位ASCII数字字符串，保留开头0 |
-| nickname | 注册可省略/null/纯空白，默认花园新朋友；最多30字符，保存前strip |
+| nickname | 注册可省略/null/空白，默认花园新朋友且不生成登录名；显式填写最多30字符，禁止@和控制字符；邮箱注册时同时生成唯一登录名，保存前strip |
 | purpose | 必填，REGISTER或RESET_PASSWORD，大写枚举 |
 
 未知请求字段返回400；请求不能修改用户status/credentialVersion/avatarUrl，也不能传userId切换身份。注册和登录都要求用户名/邮箱二选一。用户名注册不需要验证码，不发送email/verificationCode。未绑定邮箱的用户名账号本期无自助邮箱重置流程。独立 RegisterDTO/LoginDTO/EmailCodeDTO/ResetPasswordDTO；响应只返回 UserVO，无passwordHash。
@@ -189,7 +190,7 @@ server: { proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: true
     "lastLoginAt": null,
     "createdAt": "2026-11-12T06:00:00Z",
     "updatedAt": "2026-11-12T06:00:00Z",
-    "username": null
+    "username": "花园新朋友"
   }
 }
 ```

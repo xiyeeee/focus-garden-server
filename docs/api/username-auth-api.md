@@ -1,10 +1,10 @@
 # 用户名与密码注册、登录对接
 
-在已有邮箱验证码注册/登录基础上新增用户名模式，沿用同一组接口和同一套 Session/CSRF/用户/任务体系，没有创建第二套身份或JWT。邮箱接口保持兼容。
+在已有邮箱验证码注册/登录基础上新增用户名模式，沿用同一组接口和同一套 Session/CSRF/用户/任务体系，没有创建第二套身份或JWT。邮箱接口保持兼容。当前注册页复用昵称作为登录名，见 [昵称登录对接](nickname-login-api.md)。
 
 ## 1. 数据库和启动
 
-新增真实迁移 `src/main/resources/db/migration/V6__username_password_authentication.sql`。保持V1–V5不变，启动时Flyway自动执行V6：
+新增真实迁移 `src/main/resources/db/migration/V6__username_password_authentication.sql`。V6原始变更如下；V7进一步扩展登录名和回填历史昵称，按版本顺序自动执行：
 
 - garden_user新增可为空的username及唯一索引，采用ASCII区分大小写的存储排序规则；应用统一转小写，避免大小写重复账号。
 - email改为可为空，保留原唯一索引。用户名账号email=NULL，邮箱账号username=NULL，不生成虚假邮箱。
@@ -20,7 +20,7 @@
 | password | 必填，8–128个UTF-16字符，保留空格和Unicode，不trim、不截断；PBKDF2哈希 |
 | nickname | 注册可选，最多30字符，可用中文；null/缺省/空白默认“花园新朋友”，保存时去首尾空白 |
 
-username是登录标识，nickname是显示名称，两者不同。旧邮箱用户可登录后通过 `PUT /api/users/me/username` 一次性绑定登录用户名；已绑定后不可更改。当前没有绑定邮箱或合并账号接口。旧邮箱用户继续可用邮箱登录，不能凭昵称登录。
+V7起，邮箱注册显式填写的nickname同时生成唯一username，支持中文；未填昵称则username=null。唯一可用历史昵称会回填，冲突跳过。上述ASCII规则仅用于显式username注册/绑定；登录接受1至32位昵称或原用户名，禁止@和控制字符。旧邮箱用户可登录后通过 `PUT /api/users/me/username` 一次性绑定登录用户名；已绑定后不可更改。当前没有绑定邮箱或合并账号接口。旧邮箱用户可用邮箱登录；已生成username的也可用昵称登录。
 
 用户名账号没有已验证邮箱，**本次不提供该账号的自助邮箱找回密码**；不要将重置请求中的邮箱随意关联到用户名账号。原邮箱验证码重置仅处理对应的邮箱账号。
 
@@ -93,7 +93,7 @@ HTTP 200，data结构与注册相同，lastLoginAt/updatedAt更新为服务端�
 {"email":"gardener@example.com","password":"安全密码 🌱 123"}
 ```
 
-邮箱用户返回email字符串、username:null。GET /api/users/me返回同一UserVO结构，刷新页面时调用它判断登录状态；未登录返回JSON401。
+邮箱用户返回email字符串，username未生成时才为null。GET /api/users/me返回同一UserVO结构，刷新页面时调用它判断登录状态；未登录返回JSON401。
 
 ### 绑定登录用户名
 
